@@ -7,6 +7,8 @@ import { mapWithState } from './util.pure';
 export const TYPE_VARIABLE = 'TypeVariable';
 export const FUNCTION_TYPE = 'FunctionType';
 export const PRIMITIVE_TYPE = 'PrimitiveType';
+export const ARRAY_TYPE = 'ArrayType';
+export const OBJECT_TYPE = 'ObjectType';
 
 export const INITIAL_TYPE_VARIABLES_STATE = {
     nextId: 0,
@@ -21,6 +23,7 @@ export const INITIAL_TYPE_VARIABLES_STATE = {
 //     id = x => x
 
 // Here, `id` has the polymorphic type `#a -> #a`.
+
 export function createTypeVariable(typeVariables, { idString } = {}) {
     console.assert(typeVariables && typeof typeVariables.nextId === 'number');
 
@@ -139,20 +142,26 @@ export const NUMBER_TYPE = createPrimitiveType('Number');
 export const STRING_TYPE = createPrimitiveType('String');
 export const BOOLEAN_TYPE = createPrimitiveType('Boolean');
 
-// var ArrayType = function(type) {
-//     this.type = type;
-//     this.types = [type];
-// };
-// ArrayType.prototype = new BaseType();
-// ArrayType.prototype.name = "Array";
-// ArrayType.prototype.fresh = function(nonGeneric, mappings) {
-//     if(!mappings) mappings = {};
-//     return new ArrayType(this.type.fresh(nonGeneric, mappings));
-// };
-// ArrayType.prototype.toString = function() {
-//     return '[' + this.type.toString() + ']';
-// };
-// exports.ArrayType = ArrayType;
+
+export function createArrayType(elementType) {
+    return {
+        type: ARRAY_TYPE,
+        elementType,
+        toString() {
+            return `[${elementType}]`;
+        },
+    };
+}
+
+export function createObjectType(props) {
+    return {
+        type: OBJECT_TYPE,
+        props,
+        toString() {
+            return `{${Object.keys(props).map(k => `${k}: ${props[k]}`).join(', ')}}`;
+        }
+    };
+}
 
 // var ObjectType = function(props) {
 //     this.props = props;
@@ -169,30 +178,9 @@ export const BOOLEAN_TYPE = createPrimitiveType('Boolean');
 //     if(this.aliased) freshed.aliased = this.aliased;
 //     return freshed;
 // };
-// ObjectType.prototype.getPropertyType = function(prop) {
-//     return this.props[prop];
-// };
-// ObjectType.prototype.toString = function() {
-//     var strs = [];
-//     var p;
-//     var n;
-//     var e;
-//     for(p in this.props) {
-//         if (_.isString(p)) {
-//             // Replace any double quotes by their escaped version.
-//             // Also replace any escaped single quotes.
-//             e = p.replace(/"|\\"/g, '\\"').replace(/(\\\\)|\\(')/g, '$1$2');
-//             // Normalize the string format to double quotes.
-//             n = e.replace(/^'(.*)'$|^\\"(.*)\\"$/, '"$1$2"');
-//             strs.push(n + ': ' + this.props[p].toString());
-//         } else {
-//             strs.push(p + ': ' + this.props[p].toString());
-//         }
-//     }
-//     return '{' + strs.join(', ') + '}';
-// };
-// exports.ObjectType = ObjectType;
 
+
+//export function 
 
 // var TypeClassType = function(name, type) {
 //     this.name = name;
@@ -215,20 +203,37 @@ export const BOOLEAN_TYPE = createPrimitiveType('Boolean');
 // This will unchain variables until it gets to a type or variable without an
 // instance. See `unify` for some details about type variable instances.
 export function prune(type, typeVariables) {
-    console.assert(type && typeVariables);
+    console.assert(typeVariables);
 
-    if (type.type === TYPE_VARIABLE) {
-        const pruned = typeVariables.variables[type.id];
-        if ( pruned === type ) {
-            return pruned;
+    switch (type.type) {
+        case TYPE_VARIABLE: {
+            const pruned = typeVariables.variables[type.id];
+            if ( pruned === type ) {
+                return pruned;
+            }
+            return prune(pruned, typeVariables);
         }
-        console.log('PRUNE', type, pruned);
-        return prune(pruned, typeVariables);
+        case FUNCTION_TYPE: {
+            return createFunctionType(type.types.map(t => prune(t, typeVariables)));
+        }
+        case ARRAY_TYPE: {
+            return createArrayType(prune(type.elementType));
+        }
+        case OBJECT_TYPE: {
+            const prunedProps = Object.keys(type.props).reduce((props, k) => {
+                const prop = type.props[k];
+                const prunedProp = prune(prop, typeVariables);
+                return prunedProp === prop ? props : {
+                    ...props,
+                    [k]: prunedProp,
+                };
+            }, type.props);
+            return prunedProps === type.props ? type : createObjectType(prunedProps);
+        }
+        case PRIMITIVE_TYPE:
+            return type;
     }
-    if (type.type === FUNCTION_TYPE) {
-        return createFunctionType(type.types.map(t => prune(t, typeVariables)));
-    }
-    return type;
+    throw "prune: invalid type: " + type.type;
 };
 
 // ### Unification
@@ -242,28 +247,33 @@ export function prune(type, typeVariables) {
 
 // If neither constraint can be met, the process will throw an error message.
 export function unify(t1Raw, t2Raw, typeVariables) {
+    console.assert(typeVariables);
+
     const t1 = prune(t1Raw, typeVariables);
     const t2 = prune(t2Raw, typeVariables);
 
     // console.log('unify', t1Raw, t2Raw, t1, t2, typeVariables);
     
     if (t1.type == TYPE_VARIABLE) {
+        console.assert(t2);
         if (t1 !== t2) {
             if (occursInType(t1, t2, typeVariables)) {
                 throw "Recursive unification";
             }
             // t1.instance = t2;
         }
-        return [t2, t2, {
+        const unified = t2.type !== TYPE_VARIABLE || t2.id < t1.id ? t2 : t1;
+        return [unified, unified, {
             ...typeVariables,
             variables: {
                 ...typeVariables.variables,
-                [t1.id]: t2,
+                [t1.id]: unified,
+                [t2.id]: unified,
             },
         }];
     } else if (t2.type === TYPE_VARIABLE) {
-        const [t2u, t1u, typeVariables] = unify(t2, t1, typeVariables);
-        return [t1u, t2u, typeVariables];
+        const [t2u, t1u, nextTypeVariables] = unify(t2, t1, typeVariables);
+        return [t1u, t2u, nextTypeVariables];
     } else if (t1.type === FUNCTION_TYPE && t2.type === FUNCTION_TYPE) {
         if (t1.name != t2.name || t1.types.length != t2.types.length) {
             throw "Type error: " + t1.toString() + " is not " + t2.toString();
@@ -294,7 +304,7 @@ export function unify(t1Raw, t2Raw, typeVariables) {
         return [t1, t2, typeVariables];
     } else {
         console.log(t1, t2);
-        throw "Not unified: " + t1 + ' && ' + t2;
+        throw new TypeError("Not unified: " + t1 + ' && ' + t2);
     }
 }
 
