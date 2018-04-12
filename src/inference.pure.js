@@ -3,31 +3,34 @@
 import * as babylon from 'babylon';
 import traverse from 'babel-traverse';
 import { prune, unify, createTypeVariable, createFunctionType, createObjectType,
-	NUMBER_TYPE, STRING_TYPE, INITIAL_TYPE_VARIABLES_STATE, UNIT_TYPE, OBJECT_TYPE, BOOLEAN_TYPE } from './types.pure';
+	NUMBER_TYPE, STRING_TYPE, INITIAL_TYPE_VARIABLES_STATE, UNIT_TYPE, OBJECT_TYPE, BOOLEAN_TYPE, createArrayType } from './types.pure';
 import { mapWithState, reduceWithState, mapWithStateTakeLast } from './util.pure';
 import { WeakSet } from 'core-js';
+import { throwNiceError } from './error.pure';
 
 function analyseFunction(node, state) {
 	const outerScope = state.env;
 	const recursive = !!node.id;
-	const { result: argTypes, nextState: stateWithArgs } = mapWithState(state, node.params, (arg, state) => {
-		const { variable: result, typeVariables } = createTypeVariable(state.typeVariables);
-		// newNonGeneric.push(argType);
+	const { result: argTypes, nextState: stateWithArgs } =
+		node.params.length > 0 ? mapWithState(state, node.params, (arg, state) => {
+			const { variable: result, typeVariables } = createTypeVariable(state.typeVariables);
+			// newNonGeneric.push(argType);
 
-		return {
-			result,
-			state: {
-				...state,
-				typeVariables,
+			return {
+				result,
+				state: {
+					...state,
+					typeVariables,
 
-				// Define the argument in scope
-				env: {
-					...state.env,
-					[arg.name]: result,
-				},
+					// Define the argument in scope
+					env: {
+						...state.env,
+						[arg.name]: result,
+					},
+				}
 			}
-		}
-	});
+		})
+		: { result: [UNIT_TYPE], nextState: state };
 
 	const { variable: resultTypeVar, typeVariables } =
 		recursive ? createTypeVariable(stateWithArgs.typeVariables) : {};
@@ -80,10 +83,14 @@ export function analyseFunctionBody(body, argTypes, resultTypeVar, functionType,
 
 export function analyseCall(funType, args, state) {
 	const { variable: resultTypeVariable, typeVariables } = createTypeVariable(state.typeVariables);
+	const stateWithVar = {
+		...state,
+		typeVariables,	
+	};
 	
-	const { result: argTypes, nextState } = mapWithState({
-		...state, typeVariables,	
-	}, args, analyse);
+	const { result: argTypes, nextState } =
+		args.length ? mapWithState(stateWithVar, args, analyse)
+		: { result: [UNIT_TYPE], nextState: stateWithVar };
 
 	const types = [
 		...argTypes,
@@ -96,7 +103,7 @@ export function analyseCall(funType, args, state) {
 		const [unifiedCallType, unifiedFunType, nextTypeVariables]
 			= unify(callType, funType, nextState.typeVariables);
 		
-		const unifiedResultType = unifiedCallType.types[args.length];
+		const unifiedResultType = unifiedCallType.types[argTypes.length];
 
 		return {
 			result: unifiedResultType,
@@ -106,11 +113,22 @@ export function analyseCall(funType, args, state) {
 			},
 		};
 	} catch (e) {
-		throw new TypeError('invalid call: ' + callType + ', expecting: ' + funType);
+		throw new TypeError('Bad call!' +
+			'\nWas expecting: ' + prune(funType, nextState.typeVariables) +
+			'\n ...but given: ' + prune(callType, nextState.typeVariables) +
+			'\nRoot cause: ' + e + '\n' + (e.stack || '') + '\n');
 	}
 }
 
 export function analyse(node, state) {
+	try {
+		return _analyse(node, state);
+	} catch (e) {
+		throwNiceError(e, state.src, node);
+	}
+}
+
+export function _analyse(node, state) {
 	console.assert(state);
 
 	switch (node.type) {
@@ -248,6 +266,26 @@ export function analyse(node, state) {
 			}
 		}
 
+		case 'MemberExpression': {
+			console.log(node);
+
+			const { result: lhsType, state: nextState } = analyse(node.object, state);
+
+			const { variable: memberType, typeVariables } = createTypeVariable(nextState.typeVariables);
+			const arrayType = createArrayType(memberType);
+
+			const [unifiedLhsType, unifiedArrayType, nextTypeVariables] = unify(lhsType, arrayType, typeVariables);
+			console.log(''+lhsType, ''+arrayType, ''+unifiedLhsType, ''+unifiedArrayType);
+
+			return {
+				result: memberType,
+				state: {
+					...nextState,
+					typeVariables: nextTypeVariables,
+				}
+			}
+		}
+
 		case 'ReturnStatement': {
 			return analyse(node.argument, state);
 		}
@@ -302,15 +340,17 @@ export function analyse(node, state) {
 	}
 }
 
+const { variable, typeVariables } = createTypeVariable(INITIAL_TYPE_VARIABLES_STATE);
 const globalEnv = {
 	'(+)': createFunctionType([ NUMBER_TYPE, NUMBER_TYPE, NUMBER_TYPE ]),
 	'(-)': createFunctionType([ NUMBER_TYPE, NUMBER_TYPE, NUMBER_TYPE ]),
 	'(<)': createFunctionType([ NUMBER_TYPE, NUMBER_TYPE, BOOLEAN_TYPE ]),
-	'-': createFunctionType([ NUMBER_TYPE, NUMBER_TYPE ])
+	'-': createFunctionType([ NUMBER_TYPE, NUMBER_TYPE ]),
+	'!': createFunctionType([ variable, BOOLEAN_TYPE ])
 }
 const initialState = {
 	env: globalEnv,
-	typeVariables: INITIAL_TYPE_VARIABLES_STATE,
+	typeVariables,
 }
 
 const parseOptions = {
@@ -320,7 +360,7 @@ const parseOptions = {
 export function analyseSource(src) {
 	const wrappedSrc = `(() => { ${src} })()`;
 	const ast = babylon.parse(wrappedSrc, parseOptions);
-	const res = analyse(ast.program.body[0], initialState);
+	const res = analyse(ast.program.body[0], { ...initialState, src: wrappedSrc });
 
 	console.log(prune(res.result, res.state.typeVariables).toString());
 
@@ -330,11 +370,17 @@ export function analyseSource(src) {
 	return res.result;
 }
 
-//analyseSource('return 1 + 1');
+//analyseSource(`return x => !x`);
+//analyseSource(`return function f(x) { return !x ? {} : f(x[0]) }`);
+
+// analyseSource('return 1 + 1');
 // analyseSource('1 + "a"');
 
 // analyseSource('return function f(x, y) { return x + y; }');
-analyseSource('return function fib(n) { return n < 1 ? 1 : fib(n-2) + fib(n-1) }');
+// analyseSource('return function fib(n) { return n < 1 ? 1 : fib(n-2) + fib(n-1) }');
+
+analyseSource('return function compose(f, g) { return x => g(f(x)) }');
+analyseSource('return function head(xs) { return xs[0] }');
 
 // analyseSource('const f = (x, y) => x + y; return f(1, 2)');
 

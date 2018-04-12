@@ -79,7 +79,10 @@ export function createFunctionType(types, typeClasses = []) {
         types,
         typeClasses,
         toString() {
-            return types.join(' -> ');
+            const joinedTypes = types.slice(0,-1).join(', ');
+            const args = types.length === 2 && joinedTypes.indexOf(' -> ') < 0 ? joinedTypes
+                : `(${joinedTypes})`;
+            return args + ' -> ' + types[types.length - 1];
         }
     };
 }
@@ -137,7 +140,7 @@ export function createPrimitiveType(primitiveType) {
     };
 }
 
-export const UNIT_TYPE = createPrimitiveType('Unit');
+export const UNIT_TYPE = createPrimitiveType('()');
 export const NUMBER_TYPE = createPrimitiveType('Number');
 export const STRING_TYPE = createPrimitiveType('String');
 export const BOOLEAN_TYPE = createPrimitiveType('Boolean');
@@ -163,11 +166,6 @@ export function createObjectType(props) {
     };
 }
 
-// var ObjectType = function(props) {
-//     this.props = props;
-// };
-// ObjectType.prototype = new BaseType();
-// ObjectType.prototype.name = "Object";
 // ObjectType.prototype.fresh = function(nonGeneric, mappings) {
 //     var props = {};
 //     var name;
@@ -179,8 +177,6 @@ export function createObjectType(props) {
 //     return freshed;
 // };
 
-
-//export function 
 
 // var TypeClassType = function(name, type) {
 //     this.name = name;
@@ -208,7 +204,7 @@ export function prune(type, typeVariables) {
     switch (type.type) {
         case TYPE_VARIABLE: {
             const pruned = typeVariables.variables[type.id];
-            if ( pruned === type ) {
+            if ( pruned.id === type.id ) {
                 return pruned;
             }
             return prune(pruned, typeVariables);
@@ -217,7 +213,7 @@ export function prune(type, typeVariables) {
             return createFunctionType(type.types.map(t => prune(t, typeVariables)));
         }
         case ARRAY_TYPE: {
-            return createArrayType(prune(type.elementType));
+            return createArrayType(prune(type.elementType, typeVariables));
         }
         case OBJECT_TYPE: {
             const prunedProps = Object.keys(type.props).reduce((props, k) => {
@@ -258,7 +254,7 @@ export function unify(t1Raw, t2Raw, typeVariables) {
         console.assert(t2);
         if (t1 !== t2) {
             if (occursInType(t1, t2, typeVariables)) {
-                throw "Recursive unification";
+                throw "Cannot construct infinite type: " + t1 + ' ~ ' + t2;
             }
             // t1.instance = t2;
         }
@@ -302,20 +298,56 @@ export function unify(t1Raw, t2Raw, typeVariables) {
         ];
     } else if (t1.type === PRIMITIVE_TYPE && t2.type === PRIMITIVE_TYPE && t1.primitiveType === t2.primitiveType) {
         return [t1, t2, typeVariables];
-    } else {
-        console.log(t1, t2);
-        throw new TypeError("Not unified: " + t1 + ' && ' + t2);
+    } else if (t1.type === OBJECT_TYPE && t2.type === OBJECT_TYPE) {
+        const t1keys = Object.keys(t1.props);
+        const t2keys = Object.keys(t2.props);
+        const keysSet = new Set([...t1keys, ...t2keys]);
+        if ( keysSet.size === t1keys.length && keysSet.size === t2keys.length ) {
+            const { result: unifiedTypes, nextState: nextTypeVariables } = mapWithState(
+                typeVariables,
+                t1keys,
+                (k, typeVariables, i) => {
+                    const [t1u, t2u, state] = unify(t1.props[k], t2.props[k], typeVariables);
+                    return {
+                        result: [t1u, t2u],
+                        state,
+                    };
+                }
+            );
+
+            return [t1, t2, nextTypeVariables];
+        }
     }
+
+    console.log(t1, t2);
+    throw new TypeError("Not unified: " + t1 + ' && ' + t2);
 }
 
 export function occursInType(t1, t2Raw, typeVariables) {
     const t2 = prune(t2Raw, typeVariables);
     if (t2 === t1) {
         return true;
-    } else if (t2.type === FUNCTION_TYPE) {
-        return occursInTypeArray(t1, t2.types, typeVariables);
     }
-    return false;
+    switch (t2.type) {
+        case FUNCTION_TYPE: {
+            return occursInTypeArray(t1, t2.types, typeVariables);
+        }
+        case ARRAY_TYPE: {
+            return occursInType(t1, t2.elementType, typeVariables);
+        }
+        case OBJECT_TYPE: {
+            for ( const k in t2.props ) {
+                if ( occursInType(t1, t2.props[k], typeVariables) ) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        case TYPE_VARIABLE:
+        case PRIMITIVE_TYPE:
+            return false;
+    }
+    throw "prune: invalid type: " + type.type;
 }
 
 export function occursInTypeArray(t1, types, typeVariables) {
