@@ -48,6 +48,17 @@ export function createTypeVariable(typeVariables, { idString } = {}) {
     };
 }
 
+export function setTypeVariable(variable, value, typeVariables) {
+    console.assert(variable.id);
+    return {
+        ...typeVariables,
+        variables: {
+            ...typeVariables.variables,
+            [variable.id]: value,
+        }
+    }
+}
+
 // Type variables should look like `'a`. If the variable has an instance, that
 // should be used for the string instead.
 //
@@ -166,6 +177,13 @@ export function createObjectType(props) {
     };
 }
 
+export function addObjectProperty(objectType, name, type) {
+    return createObjectType({
+        ...objectType.props,
+        [name]: type,
+    });
+}
+
 // ObjectType.prototype.fresh = function(nonGeneric, mappings) {
 //     var props = {};
 //     var name;
@@ -178,7 +196,7 @@ export function createObjectType(props) {
 // };
 
 
-// var TypeClassType = function(name, type) {
+// function createTypeClass(name, type) {
 //     this.name = name;
 //     this.type = type;
 //     this.types = [type];
@@ -250,7 +268,7 @@ export function unify(t1Raw, t2Raw, typeVariables) {
 
     // console.log('unify', t1Raw, t2Raw, t1, t2, typeVariables);
     
-    if (t1.type == TYPE_VARIABLE) {
+    if (t1.type === TYPE_VARIABLE) {
         console.assert(t2);
         if (t1 !== t2) {
             if (occursInType(t1, t2, typeVariables)) {
@@ -258,7 +276,7 @@ export function unify(t1Raw, t2Raw, typeVariables) {
             }
             // t1.instance = t2;
         }
-        const unified = t2.type !== TYPE_VARIABLE || t2.id < t1.id ? t2 : t1;
+        const unified = (t2.type !== TYPE_VARIABLE || t2.id < t1.id) ? t2 : t1;
         return [unified, unified, {
             ...typeVariables,
             variables: {
@@ -268,8 +286,17 @@ export function unify(t1Raw, t2Raw, typeVariables) {
             },
         }];
     } else if (t2.type === TYPE_VARIABLE) {
-        const [t2u, t1u, nextTypeVariables] = unify(t2, t1, typeVariables);
-        return [t1u, t2u, nextTypeVariables];
+        if (occursInType(t2, t1, typeVariables)) {
+            throw "Cannot construct infinite type: " + t1 + ' ~ ' + t2;
+        }
+        const unified = t1;
+        return [unified, unified, {
+            ...typeVariables,
+            variables: {
+                ...typeVariables.variables,
+                [t2.id]: unified,
+            },
+        }];
     } else if (t1.type === FUNCTION_TYPE && t2.type === FUNCTION_TYPE) {
         if (t1.name != t2.name || t1.types.length != t2.types.length) {
             throw "Type error: " + t1.toString() + " is not " + t2.toString();
@@ -302,10 +329,15 @@ export function unify(t1Raw, t2Raw, typeVariables) {
         const t1keys = Object.keys(t1.props);
         const t2keys = Object.keys(t2.props);
         const keysSet = new Set([...t1keys, ...t2keys]);
-        if ( keysSet.size === t1keys.length && keysSet.size === t2keys.length ) {
+
+        console.log('unify', t1, t2)
+
+        // t1 may be a subtype of t2, in which case it may have more keys.
+        if ( keysSet.size === t1keys.length ) {
+            // unify every key in t2 with the corresponding t1 key.
             const { result: unifiedTypes, nextState: nextTypeVariables } = mapWithState(
                 typeVariables,
-                t1keys,
+                t2keys,
                 (k, typeVariables, i) => {
                     const [t1u, t2u, state] = unify(t1.props[k], t2.props[k], typeVariables);
                     return {

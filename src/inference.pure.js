@@ -5,81 +5,9 @@ import traverse from 'babel-traverse';
 import { prune, unify, createTypeVariable, createFunctionType, createObjectType,
 	NUMBER_TYPE, STRING_TYPE, INITIAL_TYPE_VARIABLES_STATE, UNIT_TYPE, OBJECT_TYPE, BOOLEAN_TYPE, createArrayType } from './types.pure';
 import { mapWithState, reduceWithState, mapWithStateTakeLast } from './util.pure';
-import { WeakSet } from 'core-js';
 import { throwNiceError } from './error.pure';
-
-function analyseFunction(node, state) {
-	const outerScope = state.env;
-	const recursive = !!node.id;
-	const { result: argTypes, nextState: stateWithArgs } =
-		node.params.length > 0 ? mapWithState(state, node.params, (arg, state) => {
-			const { variable: result, typeVariables } = createTypeVariable(state.typeVariables);
-			// newNonGeneric.push(argType);
-
-			return {
-				result,
-				state: {
-					...state,
-					typeVariables,
-
-					// Define the argument in scope
-					env: {
-						...state.env,
-						[arg.name]: result,
-					},
-				}
-			}
-		})
-		: { result: [UNIT_TYPE], nextState: state };
-
-	const { variable: resultTypeVar, typeVariables } =
-		recursive ? createTypeVariable(stateWithArgs.typeVariables) : {};
-	const functionType = resultTypeVar && createFunctionType([...argTypes, resultTypeVar]);
-
-	// For recursive calls
-	const stateWithScope = recursive ? {
-		...stateWithArgs,
-		typeVariables,
-		env: node.id ? {
-			...stateWithArgs.env,
-			[node.id.name]: functionType,
-		} : stateWithArgs.env,
-	} : stateWithArgs;
-
-	const { result, state: nextState } = analyseFunctionBody(
-		node.body, argTypes, resultTypeVar, functionType, stateWithScope
-	);
-
-	// var annotationType;
-	// if(node.type) {
-	// 	annotationType = nodeToType(node.type);
-	// 	unify(resultType, annotationType);
-	// }
-
-	return {
-		result,
-		state: {
-			...nextState,
-			env: outerScope,
-		},
-	};
-}
-
-export function analyseFunctionBody(body, argTypes, resultTypeVar, functionType, state) {
-	const { result: resultType, state: nextState } = analyse(body, state);
-
-	const [unifiedResultType, _unifiedResultType, nextTypeVariables] =
-		resultTypeVar ? unify(resultTypeVar, resultType, nextState.typeVariables)
-		: [resultType, resultType, nextState.typeVariables];
-	
-	return {
-		result: functionType || createFunctionType([...argTypes, unifiedResultType]),
-		state: {
-			...nextState,
-			typeVariables: nextTypeVariables,
-		},
-	};
-}
+import { analyseFunction } from './inference/function.pure';
+import { analyseMemberExpression } from './inference/member-expression.pure';
 
 export function analyseCall(funType, args, state) {
 	const { variable: resultTypeVariable, typeVariables } = createTypeVariable(state.typeVariables);
@@ -138,13 +66,13 @@ export function _analyse(node, state) {
 
 		case 'FunctionExpression':
 		case 'ArrowFunctionExpression': {
-			return analyseFunction(node, state);
+			return analyseFunction(node, state, analyse);
 		}
 
 		case 'FunctionDeclaration': {
 			const name = node.id.name;
 
-			const { result, state: nextState } = analyseFunction(node, state);
+			const { result, state: nextState } = analyseFunction(node, state, analyse);
 			
 			return {
 				result,
@@ -267,23 +195,7 @@ export function _analyse(node, state) {
 		}
 
 		case 'MemberExpression': {
-			console.log(node);
-
-			const { result: lhsType, state: nextState } = analyse(node.object, state);
-
-			const { variable: memberType, typeVariables } = createTypeVariable(nextState.typeVariables);
-			const arrayType = createArrayType(memberType);
-
-			const [unifiedLhsType, unifiedArrayType, nextTypeVariables] = unify(lhsType, arrayType, typeVariables);
-			console.log(''+lhsType, ''+arrayType, ''+unifiedLhsType, ''+unifiedArrayType);
-
-			return {
-				result: memberType,
-				state: {
-					...nextState,
-					typeVariables: nextTypeVariables,
-				}
-			}
+			return analyseMemberExpression(node, state, analyse);
 		}
 
 		case 'ReturnStatement': {
@@ -370,8 +282,14 @@ export function analyseSource(src) {
 	return res.result;
 }
 
-//analyseSource(`return x => !x`);
-//analyseSource(`return function f(x) { return !x ? {} : f(x[0]) }`);
+// analyseSource(`return x => !x`);
+// analyseSource(`return function f(x) { return !x ? {} : f(x[0]) }`);
+
+// analyseSource(`return a => a.x.y.z[0]`);
+// analyseSource(`const f = a => a.x.y.z[0]; f({ x: {} })`);
+// analyseSource(`return a => a.x + 1`);
+// analyseSource(`return a => a.x + a.y`);
+analyseSource(`const f = a => a.x + a.y; return f({ x: 1, y: 'a' })`);
 
 // analyseSource('return 1 + 1');
 // analyseSource('1 + "a"');
@@ -379,8 +297,8 @@ export function analyseSource(src) {
 // analyseSource('return function f(x, y) { return x + y; }');
 // analyseSource('return function fib(n) { return n < 1 ? 1 : fib(n-2) + fib(n-1) }');
 
-analyseSource('return function compose(f, g) { return x => g(f(x)) }');
-analyseSource('return function head(xs) { return xs[0] }');
+//analyseSource('return function compose(f, g) { return x => g(f(x)) }');
+// analyseSource('return function head(xs) { return xs[0] }');
 
 // analyseSource('const f = (x, y) => x + y; return f(1, 2)');
 
