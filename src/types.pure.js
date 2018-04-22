@@ -392,6 +392,11 @@ export function unify(t1Raw, t2Raw, typeVariables) {
             );
 
             return [t1, t2, nextTypeVariables];
+        } else {
+            const missingProps = t2keys
+                .filter(k => !(k in t1.props))
+                .map(k => k + ' : ' + prune(t2.props[k], typeVariables));
+            throw new TypeError("Object missing properties:\n\t" + missingProps.join('\n\t'));
         }
     }
 
