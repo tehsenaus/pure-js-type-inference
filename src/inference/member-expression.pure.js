@@ -1,6 +1,6 @@
 
 import { prune, unify, createTypeVariable, createFunctionType, createObjectType, createArrayType,
-    TYPE_VARIABLE, OBJECT_TYPE, setTypeVariable, addObjectProperty } from '../types.pure';
+    TYPE_VARIABLE, OBJECT_TYPE, setTypeVariable, addObjectProperty, createNullableType, DICT_LOOKUP_OPERATOR } from '../types.pure';
 
 
 export function analyseMemberExpression(node, state, analyse) {
@@ -10,29 +10,25 @@ export function analyseMemberExpression(node, state, analyse) {
 
     const { variable: memberType, typeVariables } = createTypeVariable(nextState.typeVariables);
 
-    if (node.property.type === 'NumericLiteral') {
-        const arrayType = createArrayType(memberType);
-
-        return {
-            result: memberType,
-            state: unifyInState(lhsType, arrayType, state, typeVariables),
-        }
-    } else if (!node.computed && node.property.type === 'Identifier') {
+    if ((!node.computed && node.property.type === 'Identifier') || node.property.type === 'NumericLiteral') {
+        const propName = node.property.name || node.property.value.toString();
+        
         if ( lhsType.type === TYPE_VARIABLE && prune(lhsType, typeVariables).type === OBJECT_TYPE ) {
             // Performing another access on an existing object type. Either this is a new
             // property, in which case we add it to the existing type. Otherwise it's
             // an existing property, and should be unified.
 
             const objectType = prune(lhsType, typeVariables);
-            if ( node.property.name in objectType.props ) {
+
+            if ( propName in objectType.props ) {
                 // Existing prop
                 return {
                     result: memberType,
-                    state: unifyInState(memberType, objectType.props[node.property.name], state, typeVariables),
+                    state: unifyInState(memberType, objectType.props[propName], state, typeVariables),
                 }
             } else {
                 // New prop
-                const nextObjectType = addObjectProperty(objectType, node.property.name, memberType);
+                const nextObjectType = addObjectProperty(objectType, propName, memberType);
                 const nextTypeVariables = setTypeVariable(
                     lhsType,
                     nextObjectType,
@@ -52,7 +48,7 @@ export function analyseMemberExpression(node, state, analyse) {
 
         } else {
             const objectType = createObjectType({
-                [node.property.name]: memberType,
+                [propName]: memberType,
             });
     
             return {
@@ -62,7 +58,23 @@ export function analyseMemberExpression(node, state, analyse) {
         }
         
     } else {
-        throw "dynamic property access not supported!";
+        // Dynamic property access
+
+        return analyse({
+            ...node,
+            type: 'CallExpression',
+            callee: {
+                ...node,
+                type: 'MemberExpression',
+                object: node.object,
+                property: {
+                    type: 'Identifier',
+                    name: DICT_LOOKUP_OPERATOR,
+                },
+                computed: false,
+            },
+            arguments: [node.property],
+        }, state);
     }
 }
 

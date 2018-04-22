@@ -3,7 +3,7 @@
 import * as babylon from 'babylon';
 import traverse from 'babel-traverse';
 import { prune, unify, createTypeVariable, createFunctionType, createObjectType,
-	NUMBER_TYPE, STRING_TYPE, INITIAL_TYPE_VARIABLES_STATE, UNIT_TYPE, OBJECT_TYPE, BOOLEAN_TYPE, createArrayType } from './types.pure';
+	NUMBER_TYPE, STRING_TYPE, INITIAL_TYPE_VARIABLES_STATE, UNIT_TYPE, OBJECT_TYPE, BOOLEAN_TYPE, createArrayType, createTupleType, commonSubtype } from './types.pure';
 import { mapWithState, reduceWithState, mapWithStateTakeLast } from './util.pure';
 import { throwNiceError } from './error.pure';
 import { analyseFunction } from './inference/function.pure';
@@ -193,6 +193,17 @@ export function _analyse(node, state) {
 				}
 			}
 		}
+		
+		case 'ArrayExpression': {
+			const { result: elementTypes, nextState } = mapWithState(state, node.elements, analyse);
+
+			const elementType = elementTypes.reduce((t1, t2) => commonSubtype(t1, t2, nextState.typeVariables));
+
+			return {
+				result: createTupleType(elementTypes, elementType),
+				state: nextState,
+			}
+		}
 
 		case 'MemberExpression': {
 			return analyseMemberExpression(node, state, analyse);
@@ -246,6 +257,13 @@ export function _analyse(node, state) {
 			};
 		}
 
+		case 'EmptyStatement': {
+			return {
+				result: UNIT_TYPE,
+				state,
+			}
+		}
+
 		default: {
 			throw 'unknown AST node type: ' + node.type;
 		}
@@ -289,7 +307,33 @@ export function analyseSource(src) {
 // analyseSource(`const f = a => a.x.y.z[0]; f({ x: {} })`);
 // analyseSource(`return a => a.x + 1`);
 // analyseSource(`return a => a.x + a.y`);
-analyseSource(`const f = a => a.x + a.y; return f({ x: 1, y: 'a' })`);
+// analyseSource(`const f = a => a.x + a.y; return f({ x: 1, y: 'a' })`);
+// analyseSource(`return m => x => x[m]`);
+
+// analyseSource(`return (state, values, f, initial) => {
+// 	return values.reduce((acc, v, i) => {
+// 		const r = f(acc.result, v, acc.nextState, i);
+// 		return { result: r.result, nextState: r.state };
+// 	}, { result: initial, nextState: state });
+// }`);
+
+// analyseSource(`
+// const mapWithState = (state, values, f, initial) => {
+// 	return values.reduce((acc, v, i) => {
+// 		const r = f(acc.result, v, acc.nextState, i);
+// 		return { result: r.result, nextState: r.state };
+// 	}, { result: initial, nextState: state });
+// };
+// mapWithState({}, [1, 2], () => {}, {});
+// `);
+
+// analyseSource(`return (state, values, f, initial) => {
+// 	return values.reduce(({ result: acc, nextState: state }, v, i) => {
+// 		const { result, state: nextState } = f(acc, v, state, i);
+// 		return { result, nextState };
+// 	}, { result: initial, nextState: state });
+// }`);
+
 
 // analyseSource('return 1 + 1');
 // analyseSource('1 + "a"');
@@ -299,6 +343,9 @@ analyseSource(`const f = a => a.x + a.y; return f({ x: 1, y: 'a' })`);
 
 //analyseSource('return function compose(f, g) { return x => g(f(x)) }');
 // analyseSource('return function head(xs) { return xs[0] }');
+// analyseSource('function head(xs) { return xs[0] }; return head([1, 2])');
+// analyseSource('function foot(xs) { return xs[xs.length - 1] }; return foot([1, 2])');
+// analyseSource('return [1, 2]');
 
 // analyseSource('const f = (x, y) => x + y; return f(1, 2)');
 

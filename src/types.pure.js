@@ -9,6 +9,11 @@ export const FUNCTION_TYPE = 'FunctionType';
 export const PRIMITIVE_TYPE = 'PrimitiveType';
 export const ARRAY_TYPE = 'ArrayType';
 export const OBJECT_TYPE = 'ObjectType';
+export const NULLABLE_TYPE = 'NullableType';
+export const INDETERMINATE_TYPE_NAME = 'IndeterminateType';
+
+export const ARRAY_LOOKUP_OPERATOR = '[]';
+export const DICT_LOOKUP_OPERATOR = '[]';
 
 export const INITIAL_TYPE_VARIABLES_STATE = {
     nextId: 0,
@@ -156,15 +161,11 @@ export const NUMBER_TYPE = createPrimitiveType('Number');
 export const STRING_TYPE = createPrimitiveType('String');
 export const BOOLEAN_TYPE = createPrimitiveType('Boolean');
 
-
-export function createArrayType(elementType) {
-    return {
-        type: ARRAY_TYPE,
-        elementType,
-        toString() {
-            return `[${elementType}]`;
-        },
-    };
+export const INDETERMINATE_TYPE = {
+    type: INDETERMINATE_TYPE_NAME,
+    toString() {
+        return '?';
+    }
 }
 
 export function createObjectType(props) {
@@ -184,6 +185,32 @@ export function addObjectProperty(objectType, name, type) {
     });
 }
 
+export function createArrayType(elementType) {
+    return createObjectType({
+        'length': NUMBER_TYPE,
+        [ARRAY_LOOKUP_OPERATOR]: createFunctionType([NUMBER_TYPE, createNullableType(elementType)]),
+    });
+}
+
+export function createTupleType(elementTypes, elementType = INDETERMINATE_TYPE) {
+    return createObjectType({
+        'length': NUMBER_TYPE,
+        [ARRAY_LOOKUP_OPERATOR]: createFunctionType([NUMBER_TYPE, createNullableType(elementType)]),
+        ...elementTypes.reduce((elementProps, elementType, i) => {
+            return {
+                ...elementProps,
+                [i]: elementType
+            }
+        }, {})
+    });
+}
+
+export function createDictType(memberType) {
+    return createObjectType({
+        [DICT_LOOKUP_OPERATOR]: createFunctionType([STRING_TYPE, memberType]),
+    });
+}
+
 // ObjectType.prototype.fresh = function(nonGeneric, mappings) {
 //     var props = {};
 //     var name;
@@ -194,6 +221,16 @@ export function addObjectProperty(objectType, name, type) {
 //     if(this.aliased) freshed.aliased = this.aliased;
 //     return freshed;
 // };
+
+export function createNullableType(underlyingType) {
+    return {
+        type: NULLABLE_TYPE,
+        underlyingType,
+        toString() {
+            return underlyingType.toString() + '?';
+        }
+    }
+}
 
 
 // function createTypeClass(name, type) {
@@ -245,9 +282,12 @@ export function prune(type, typeVariables) {
             return prunedProps === type.props ? type : createObjectType(prunedProps);
         }
         case PRIMITIVE_TYPE:
+        case INDETERMINATE_TYPE_NAME:
             return type;
+        case NULLABLE_TYPE:
+            return createNullableType(prune(type.underlyingType, typeVariables));
     }
-    throw "prune: invalid type: " + type.type;
+    throw new Error("prune: invalid type: " + type.type);
 };
 
 // ### Unification
@@ -268,6 +308,10 @@ export function unify(t1Raw, t2Raw, typeVariables) {
 
     // console.log('unify', t1Raw, t2Raw, t1, t2, typeVariables);
     
+    if (t2.type === INDETERMINATE_TYPE_NAME) {
+        return [t1, t2, typeVariables];
+    }
+
     if (t1.type === TYPE_VARIABLE) {
         console.assert(t2);
         if (t1 !== t2) {
@@ -355,6 +399,19 @@ export function unify(t1Raw, t2Raw, typeVariables) {
     throw new TypeError("Not unified: " + t1 + ' && ' + t2);
 }
 
+export function commonSubtype(t1Raw, t2Raw, typeVariables) {
+    console.assert(typeVariables);
+
+    const t1 = prune(t1Raw, typeVariables);
+    const t2 = prune(t2Raw, typeVariables);
+
+    if (t1.type === PRIMITIVE_TYPE && t2.type === PRIMITIVE_TYPE && t1.primitiveType === t2.primitiveType) {
+        return t1;
+    }
+
+    return INDETERMINATE_TYPE;
+}
+
 export function occursInType(t1, t2Raw, typeVariables) {
     const t2 = prune(t2Raw, typeVariables);
     if (t2 === t1) {
@@ -375,11 +432,14 @@ export function occursInType(t1, t2Raw, typeVariables) {
             }
             return false;
         }
+        case NULLABLE_TYPE:
+            return occursInType(t1, t2.underlyingType, typeVariables);
         case TYPE_VARIABLE:
         case PRIMITIVE_TYPE:
+        case INDETERMINATE_TYPE_NAME:
             return false;
     }
-    throw "prune: invalid type: " + type.type;
+    throw "occursInType: invalid type: " + t2.type;
 }
 
 export function occursInTypeArray(t1, types, typeVariables) {
