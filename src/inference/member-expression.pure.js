@@ -1,14 +1,12 @@
 
-import { prune, unify, createTypeVariable, createFunctionType, createObjectType, createArrayType,
+import { prune, unify, allocTypeVariable, createFunctionType, createObjectType, createArrayType,
     TYPE_VARIABLE, OBJECT_TYPE, setTypeVariable, addObjectProperty, createNullableType, DICT_LOOKUP_OPERATOR } from '../types.pure';
 
 
 export function analyseMemberExpression(node, state, analyse) {
-    console.log(node);
-
     const { result: lhsType, state: nextState } = analyse(node.object, state);
 
-    const { variable: memberType, typeVariables } = createTypeVariable(nextState.typeVariables);
+    const { variable: memberType, typeVariables } = allocTypeVariable(nextState.typeVariables);
 
     if ((!node.computed && node.property.type === 'Identifier') || node.property.type === 'NumericLiteral') {
         const propName = node.property.name || node.property.value.toString();

@@ -2,15 +2,16 @@
 
 import * as babylon from 'babylon';
 import traverse from 'babel-traverse';
-import { prune, unify, createTypeVariable, createFunctionType, createObjectType,
-	NUMBER_TYPE, STRING_TYPE, INITIAL_TYPE_VARIABLES_STATE, UNIT_TYPE, OBJECT_TYPE, BOOLEAN_TYPE, createArrayType, createTupleType, commonSubtype } from './types.pure';
+import { prune, unify, allocTypeVariable, createFunctionType, createObjectType,
+	NUMBER_TYPE, STRING_TYPE, INITIAL_TYPE_VARIABLES_STATE, UNIT_TYPE, OBJECT_TYPE, BOOLEAN_TYPE, createArrayType, createTupleType, commonSubtype, fresh } from './types.pure';
 import { mapWithState, reduceWithState, mapWithStateTakeLast } from './util.pure';
 import { throwNiceError } from './error.pure';
 import { analyseFunction } from './inference/function.pure';
 import { analyseMemberExpression } from './inference/member-expression.pure';
 
 export function analyseCall(funType, args, state) {
-	const { variable: resultTypeVariable, typeVariables } = createTypeVariable(state.typeVariables);
+	const [freshFunType, freshTypeVariables] = fresh(funType, state.typeVariables);
+	const { variable: resultTypeVariable, typeVariables } = allocTypeVariable(freshTypeVariables);
 	const stateWithVar = {
 		...state,
 		typeVariables,	
@@ -25,11 +26,12 @@ export function analyseCall(funType, args, state) {
 		resultTypeVariable
 	];
 	const callType = createFunctionType(types);
+	const [freshCallType, freshCallTypeVariables] = fresh(callType, nextState.typeVariables);
 
 	try {
-		// console.log('unifyCall: %s && %s', callType, funType)
+		// console.log('unifyCall: %s && %s', freshCallType, freshFunType)
 		const [unifiedCallType, unifiedFunType, nextTypeVariables]
-			= unify(callType, funType, nextState.typeVariables);
+			= unify(callType, freshFunType, freshCallTypeVariables);
 		
 		const unifiedResultType = unifiedCallType.types[argTypes.length];
 
@@ -270,7 +272,7 @@ export function _analyse(node, state) {
 	}
 }
 
-const { variable, typeVariables } = createTypeVariable(INITIAL_TYPE_VARIABLES_STATE);
+const { variable, typeVariables } = allocTypeVariable(INITIAL_TYPE_VARIABLES_STATE);
 const globalEnv = {
 	'(+)': createFunctionType([ NUMBER_TYPE, NUMBER_TYPE, NUMBER_TYPE ]),
 	'(-)': createFunctionType([ NUMBER_TYPE, NUMBER_TYPE, NUMBER_TYPE ]),
@@ -324,7 +326,7 @@ export function analyseSource(src) {
 // 		return { result: r.result, nextState: r.state };
 // 	}, { result: initial, nextState: state });
 // };
-// mapWithState({}, [1, 2], () => {}, {});
+// return mapWithState({}, [1, 2], (acc, v, state, i) => ({}), {});
 // `);
 
 // analyseSource(`return (state, values, f, initial) => {
@@ -337,6 +339,8 @@ export function analyseSource(src) {
 
 // analyseSource('return 1 + 1');
 // analyseSource('1 + "a"');
+
+// analyseSource('return [1]');
 
 // analyseSource('return function f(x, y) { return x + y; }');
 // analyseSource('return function fib(n) { return n < 1 ? 1 : fib(n-2) + fib(n-1) }');
@@ -353,4 +357,5 @@ export function analyseSource(src) {
 // analyseSource('return { ...{x: 1, y: 2}, f: x => x }');
 // analyseSource('return s => ({ ...s, c: 1 })');
 
-// // analyseSource('const id = x => x; id(1); return id;');
+analyseSource(`return x => x`);
+analyseSource(`const id = x => x; id(1); id('a'); return id;`);

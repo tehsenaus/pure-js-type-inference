@@ -1,4 +1,4 @@
-import { mapWithState } from './util.pure';
+import { mapWithState, reduceWithState } from './util.pure';
 
 /**
  * Based on: https://github.com/puffnfresh/roy/blob/master/src/types.js
@@ -29,18 +29,23 @@ export const INITIAL_TYPE_VARIABLES_STATE = {
 
 // Here, `id` has the polymorphic type `#a -> #a`.
 
-export function createTypeVariable(typeVariables, { idString } = {}) {
-    console.assert(typeVariables && typeof typeVariables.nextId === 'number');
-
-    const nextNextId = idString ? typeVariables.nextId : typeVariables.nextId + 1;
-    const id = idString ? variableFromString(idString) : typeVariables.nextId;
-    const variable = {
+export function createTypeVariable(id, { bound = false } = {}) {
+    return {
         type: TYPE_VARIABLE,
         id,
+        bound,
         toString() {
             return "#" + variableToString(id);
         }
     };
+}
+
+export function allocTypeVariable(typeVariables, { idString } = {}) {
+    console.assert(typeVariables && typeof typeVariables.nextId === 'number');
+
+    const nextNextId = idString ? typeVariables.nextId : typeVariables.nextId + 1;
+    const id = idString ? variableFromString(idString) : typeVariables.nextId;
+    const variable = createTypeVariable(id);
     return {
         variable,
         typeVariables: {
@@ -53,8 +58,26 @@ export function createTypeVariable(typeVariables, { idString } = {}) {
     };
 }
 
+const typeVariablesApplicative = {
+    map: (f, fx) => typeVariables => {
+        const [x, nextTypeVariables] = fx(typeVariables);
+        return [f(x), nextTypeVariables];
+    },
+    ap: (ff, fx) => typeVariables => {
+        const [f, intermedTypeVariables] = ff(typeVariables);
+        const [x, nextTypeVariables] = fx(intermedTypeVariables);
+        return [f(x), nextTypeVariables];
+    },
+    of: x => typeVariables => x,
+}
+
+export function getTypeVariable(variable, typeVariables) {
+    console.assert(typeof variable.id === 'number');
+    return typeVariables.variables[variable.id];
+}
+
 export function setTypeVariable(variable, value, typeVariables) {
-    console.assert(variable.id);
+    console.assert(typeof variable.id === 'number');
     return {
         ...typeVariables,
         variables: {
@@ -89,62 +112,36 @@ function variableFromString(vs) {
 
 // A `FunctionType` contains a `types` array. The last element represents the
 // return type. Each element before represents an argument type.
-export function createFunctionType(types, typeClasses = []) {
+export function createFunctionType(types, {
+    // Bound type variables (local to the function)
+    typeVariables = [],
+
+    typeClasses = [],
+} = {}) {
     return {
         type: FUNCTION_TYPE,
         types,
+        typeVariables,
         typeClasses,
         toString() {
-            const joinedTypes = types.slice(0,-1).join(', ');
-            const args = types.length === 2 && joinedTypes.indexOf(' -> ') < 0 ? joinedTypes
-                : `(${joinedTypes})`;
-            return args + ' -> ' + types[types.length - 1];
+            const joinedTypes = types.slice(0,-1).join(',\n');
+            const args = types.length === 2 && joinedTypes.indexOf(' -> ') < 0 ? '' + types[0]
+                : `(${formatBlock(joinedTypes)})`;
+            const typeVars = typeVariables.length ? 'forall. ' + typeVariables.join(' ') + ' => ' : '';
+            return typeVars + args + ' -> ' + types[types.length - 1];
         }
     };
 }
 
-// FunctionType.prototype.fresh = function(nonGeneric, mappings) {
-//     if(!mappings) mappings = {};
-
-//     var newTypeClasses = _.map(this.typeClasses, function(typeClass) {
-//         return typeClass.fresh(nonGeneric, mappings);
-//     });
-
-//     return new FunctionType(_.map(this.types, function(t) {
-//         return t.fresh(nonGeneric, mappings);
-//     }), newTypeClasses);
-// };
-// FunctionType.prototype.toString = function() {
-//     return this.name + "(" + _.map(this.types, function(type) {
-//         return type.toString();
-//     }).join(', ') + ")";
-// };
-
-
-// // ### Fresh type
-// //
-// // Getting a "fresh" type will create a recursive copy. When a generic type
-// // variable is encountered, a new variable is generated and substituted in.
-// //
-// // A fresh type is only returned when an identifier is found during analysis.
-// // See `analyse` for some context.
-// function fresh(nonGeneric, mappings) {
-//     if(!mappings) mappings = {};
-
-//     var type = prune(this);
-//     if(!(type instanceof Variable)) {
-//         return type.fresh(nonGeneric, mappings);
-//     }
-
-//     if(occursInTypeArray(type, nonGeneric)) {
-//         return type;
-//     }
-
-//     if(!mappings[type.id]) {
-//         mappings[type.id] = new Variable();
-//     }
-//     return mappings[type.id];
-// };
+function formatBlock(str) {
+    if ( str.length < 70 ) {
+        return str.replace(/\n/g, ' ');
+    }
+    return '\n' + indent(str) + '\n';
+}
+function indent(str) {
+    return str.split('\n').map(line => '  ' + line).join('\n');
+}
 
 export function createPrimitiveType(primitiveType) {
     return {
@@ -186,16 +183,24 @@ export function addObjectProperty(objectType, name, type) {
 }
 
 export function createArrayType(elementType) {
+    const typeVarA = createTypeVariable(0, { bound: true });
+    const typeVarB = createTypeVariable(1, { bound: true });
     return createObjectType({
         'length': NUMBER_TYPE,
         [ARRAY_LOOKUP_OPERATOR]: createFunctionType([NUMBER_TYPE, createNullableType(elementType)]),
+        'reduce': createFunctionType([
+            createFunctionType([typeVarB, typeVarA, NUMBER_TYPE, typeVarB]),
+            typeVarB,
+            typeVarB
+        ], {
+            typeVariables: [typeVarA, typeVarB]
+        }),
     });
 }
 
 export function createTupleType(elementTypes, elementType = INDETERMINATE_TYPE) {
     return createObjectType({
-        'length': NUMBER_TYPE,
-        [ARRAY_LOOKUP_OPERATOR]: createFunctionType([NUMBER_TYPE, createNullableType(elementType)]),
+        ...createArrayType(elementType).props,
         ...elementTypes.reduce((elementProps, elementType, i) => {
             return {
                 ...elementProps,
@@ -210,17 +215,6 @@ export function createDictType(memberType) {
         [DICT_LOOKUP_OPERATOR]: createFunctionType([STRING_TYPE, memberType]),
     });
 }
-
-// ObjectType.prototype.fresh = function(nonGeneric, mappings) {
-//     var props = {};
-//     var name;
-//     for(name in this.props) {
-//         props[name] = this.props[name].fresh(nonGeneric, mappings);
-//     }
-//     var freshed = new ObjectType(props);
-//     if(this.aliased) freshed.aliased = this.aliased;
-//     return freshed;
-// };
 
 export function createNullableType(underlyingType) {
     return {
@@ -249,6 +243,182 @@ export function createNullableType(underlyingType) {
 // exports.TypeClassType = TypeClassType;
 
 
+/**
+ * Creates an instance of the type with all bound type variables from functions 'instantiated'
+ * to appear as type variables in the given context.
+ * 
+ * This is done when a function is called.
+ */
+export function fresh(rawType, typeVariables) {
+    const type = prune(rawType, typeVariables);
+    console.assert(typeVariables);
+
+    switch (type.type) {
+        case FUNCTION_TYPE: {
+            const { result: freshVariableReplacements, nextState: freshTypeVariables } = reduceWithState(
+                typeVariables,
+                type.typeVariables,
+                (replacements, variableToReplace, typeVariables) => {
+                    const {
+                        variable: freshVariable,
+                        typeVariables: nextTypeVariables
+                    } = allocTypeVariable(typeVariables);
+
+                    // Replace bound variable with fresh instance
+
+                    return {
+                        result: {
+                            ...replacements,
+                            [variableToReplace.id]: freshVariable,
+                        },
+                        state: nextTypeVariables,
+                    };
+                },
+                {}
+            );
+
+            console.log('fresh', ''+rawType, ''+type, freshVariableReplacements);
+
+            const { result: freshTypes, nextState: nextTypeVariables } = mapWithState(
+                freshTypeVariables,
+                type.types,
+                (t, typeVariables) => {
+                    const replaced = replaceInType(t, freshVariableReplacements);
+
+                    const [freshType, state] = fresh(
+                        replaced,
+                        typeVariables
+                    );
+                    return { result: freshType, state };
+                }
+            )
+
+            console.log('after fresh', ''+type, freshVariableReplacements);
+
+            return [
+                createFunctionType(freshTypes),
+                nextTypeVariables
+            ];
+        }
+        case OBJECT_TYPE: {
+            const { result: freshProps, nextState: nextTypeVariables } = reduceWithState(
+                typeVariables,
+                Object.keys(type.props),
+                (props, k, typeVariables) => {
+                    const prop = type.props[k];
+                    const [freshProp, nextTypeVariables] = fresh(prop, typeVariables);
+                    return {
+                        result: freshProp === prop ? props : {
+                            ...props,
+                            [k]: freshProp,
+                        },
+                        state: nextTypeVariables,
+                    };
+                },
+                type.props
+            );
+            return [
+                freshProps === type.props ? type : createObjectType(freshProps),
+                nextTypeVariables
+            ];
+        }
+        case NULLABLE_TYPE: {
+            const [underlyingType, nextTypeVariables] = fresh(type.underlyingType, typeVariables);
+            return [createNullableType(underlyingType), nextTypeVariables];
+        }
+        case TYPE_VARIABLE:
+        case PRIMITIVE_TYPE:
+        case INDETERMINATE_TYPE_NAME:
+            return [type, typeVariables];
+    }
+    throw new Error("fresh: invalid type: " + type.type);
+}
+
+// reduceA : (Functor F) => (r -> a -> r) -> [F a] -> F r
+const reduceA = ({ map, ap, of }) => (f, init) => actions =>
+    actions.reduce(
+        (fr, fa, i) => ap(map(a => r => f(r, a, i), fa), fr),
+        of(init)
+    );
+
+// sequenceA : (Functor F) => [F r] -> F [r]
+const sequenceA = applicative => reduceA(applicative)((rs, r) => [...rs, r], []);
+
+export const traverseType = (applicative) => (f) => {
+    const {map} = applicative;
+    const sequence = sequenceA(applicative);
+    const reduce = reduceA(applicative);
+    const traverse = (type) => {
+        switch (type.type) {
+            case FUNCTION_TYPE: {
+                const result = sequence(type.types.map(traverse));
+                return map(createFunctionType, result);
+            }
+            case OBJECT_TYPE: {
+                const keys = Object.keys(type.props);
+                const result = reduce(
+                    (props, newProp, i) => {
+                        const k = keys[i];
+                        const prop = type.props[k];
+                        return newProp === prop ? props : {
+                            ...props,
+                            [k]: newProp,
+                        };
+                    },
+                    type.props
+                )(
+                    keys.map(k => traverse(type.props[k]))
+                );
+
+                return map(
+                    replacedProps => replacedProps === type.props ? type : createObjectType(replacedProps),
+                    result
+                );
+            }
+            case TYPE_VARIABLE:
+            case PRIMITIVE_TYPE:
+            case INDETERMINATE_TYPE_NAME:
+                return f(type);
+            case NULLABLE_TYPE:
+                return map(createNullableType, traverse(type.underlyingType))
+        }
+        throw new Error("traverseType: invalid type: " + type.type);
+    };
+    return traverse;
+}
+
+const identityApplicative = {
+    map: (f, x) => f(x),
+    ap: (f, a) => f(a),
+    of: x => x,
+}
+
+const constApplicative = {
+    map: (f, x) => x,
+    ap: (a, b) => a.concat(b),
+    of: x => [],
+}
+
+export const getAllTypeVariablesInType = traverseType(constApplicative)(type => {
+    switch (type.type) {
+        case TYPE_VARIABLE: {
+            return type.bound ? [] : [type];
+        }
+    }
+    return [];
+});
+
+export const replaceInType = (t, replacements) => traverseType(identityApplicative)(type => {
+    switch (type.type) {
+        case TYPE_VARIABLE: {
+            if ( type.id in replacements ) {
+                return replacements[type.id];
+            }
+        }
+    }
+    return type;
+})(t);
+
 // ### Prune
 //
 // This will unchain variables until it gets to a type or variable without an
@@ -258,6 +428,9 @@ export function prune(type, typeVariables) {
 
     switch (type.type) {
         case TYPE_VARIABLE: {
+            if ( type.bound ) {
+                return type;
+            }
             const pruned = typeVariables.variables[type.id];
             if ( pruned.id === type.id ) {
                 return pruned;
@@ -265,7 +438,7 @@ export function prune(type, typeVariables) {
             return prune(pruned, typeVariables);
         }
         case FUNCTION_TYPE: {
-            return createFunctionType(type.types.map(t => prune(t, typeVariables)));
+            return createFunctionType(type.types.map(t => prune(t, typeVariables)), type);
         }
         case ARRAY_TYPE: {
             return createArrayType(prune(type.elementType, typeVariables));
@@ -314,6 +487,7 @@ export function unify(t1Raw, t2Raw, typeVariables) {
 
     if (t1.type === TYPE_VARIABLE) {
         console.assert(t2);
+
         if (t1 !== t2) {
             if (occursInType(t1, t2, typeVariables)) {
                 throw "Cannot construct infinite type: " + t1 + ' ~ ' + t2;
@@ -396,7 +570,7 @@ export function unify(t1Raw, t2Raw, typeVariables) {
             const missingProps = t2keys
                 .filter(k => !(k in t1.props))
                 .map(k => k + ' : ' + prune(t2.props[k], typeVariables));
-            throw new TypeError("Object missing properties:\n\t" + missingProps.join('\n\t'));
+            throw new TypeError("Object missing properties:\n" + indent(missingProps.join('\n')));
         }
     }
 
