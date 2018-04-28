@@ -33,8 +33,6 @@ export function analyseMemberExpression(node, state, analyse) {
                     typeVariables
                 );
 
-                console.log('new prop', lhsType, objectType, nextObjectType, nextTypeVariables);
-
                 return {
                     result: memberType,
                     state: {
@@ -78,7 +76,6 @@ export function analyseMemberExpression(node, state, analyse) {
 
 export function unifyInState(a, b, state, typeVariables = state.typeVariables) {
     const [unifiedA, unifiedB, nextTypeVariables] = unify(a, b, typeVariables);
-    console.log(''+a, ''+b, ''+unifiedA, ''+unifiedB);
 
     return {
         ...state,

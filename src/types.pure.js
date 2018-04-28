@@ -70,7 +70,7 @@ export function occursInTypeVariables(type, typeVariables, pruneContext = typeVa
 
 export function showTypeVariables(typeVariables, pruneContext = typeVariables) {
     return Object.keys(typeVariables.variables).map(id => {
-        return '' + typeVariables.variables[id] + ': ' + prune(typeVariables.variables[id], pruneContext);
+        return '#' + variableToString(+id) + ': ' + prune(typeVariables.variables[id], pruneContext);
     }).join(', ');
 }
 

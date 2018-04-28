@@ -108,9 +108,17 @@ describe('type inference', function(){
         });
     });
 
+    describe('objects', () => {
+        it('infers type from spread of known properies', () => {
+            expect(typeOfExpr(`{ ...{x: 1, y: 2}, f: x => x }`))
+                .toBe('{x: Number, y: Number, f: #a -> #a}');
+        });
+    });
+
     describe('property access', () => {
         it('infers type from chained property access', () => {
             expect(typeOfExpr('a => a.x.y.z[0]')).toBe('{x: {y: {z: {0: #a}}}} -> #a');
+            expect(typeOfExpr('(a => a[0])([1, 2])')).toBe('Number');
 
             expect(() => {
                 analyseExpr(`const f = a => a.x.y.z[0]; f({ x: {} })`)
@@ -127,18 +135,22 @@ describe('type inference', function(){
         });
     });
 
+    describe('arrays', () => {
+        it('infers nullable type from unknown index', () => {
+            expect(typeOfExpr('(xs => xs[xs.length - 1])([1, 2])')).toBe('Number?');
+        });
+    });
+
     describe('recursion', () => {
         it('types recursive fibonacci', () => {
             expect(typeOfExpr('function fib(n) { return n < 1 ? 1 : fib(n-2) + fib(n-1) }'))
                 .toBe('Number -> Number');
         });
-    });
 
-    // describe("shouldn't type literal", function() {
-    //     it('heterogeneous arrays', function() {
-    //         expect(function() {
-    //             console.log( 'HA', typeOfExpr('[1, true]') );
-    //         }).toThrow();
-    //     });
-    // });
+        it('throws on infinite type', () => {
+            expect(() => {
+                typeOfExpr('function f(x) { return !x ? {} : f(x[0]) }')
+            }).toThrow();
+        });
+    });
 });
