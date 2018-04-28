@@ -8,7 +8,7 @@ export const INITIAL_TYPE_VARIABLES_STATE = {
 	variables: {},
 };
 
-const withTypeVariablesApplicative = {
+export const withTypeVariablesApplicative = {
 	map: (f, fx) => typeVariables => {
 		const [x, nextTypeVariables] = fx(typeVariables);
 		return [f(x), nextTypeVariables];
@@ -18,7 +18,7 @@ const withTypeVariablesApplicative = {
 		const [x, nextTypeVariables] = fx(intermedTypeVariables);
 		return [f(x), nextTypeVariables];
 	},
-	of: x => typeVariables => x,
+	of: x => typeVariables => [x, typeVariables],
 }
 
 export function allocTypeVariable(typeVariables, { idString } = {}) {
