@@ -14,9 +14,9 @@ import {
 } from '../types.pure';
 
 export function analyseMemberExpression(node, state, analyse) {
-	const {result: lhsType, state: nextState} = analyse(node.object, state);
+	const { result: lhsType, state: nextState } = analyse(node.object, state);
 
-	const {variable: memberType, typeVariables} = allocTypeVariable(nextState.typeVariables);
+	const { variable: memberType, typeVariables } = allocTypeVariable(nextState.typeVariables);
 
 	const isDynamicProperty = node.computed
 		&& node.property.type !== 'Identifier'

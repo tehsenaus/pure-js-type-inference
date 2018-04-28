@@ -1,4 +1,4 @@
-"use strict";
+'use strict';
 
 import { FUNCTION_TYPE } from './type-constants.pure';
 import { formatBlock } from '../formatting.pure';
@@ -10,21 +10,22 @@ import { formatBlock } from '../formatting.pure';
 export function createFunctionType(types, {
 	// Bound type variables (local to the function)
 	typeVariables = [],
-
 	typeClasses = [],
 } = {}) {
-	console.assert(types.every(t => !!t));
+	const allTypesDefined = types.every((t) => !!t);
+	console.assert(allTypesDefined);
+
 	return {
 		type: FUNCTION_TYPE,
 		types,
 		typeVariables,
 		typeClasses,
 		toString() {
-			const joinedTypes = types.slice(0,-1).join(',\n');
+			const joinedTypes = types.slice(0, -1).join(',\n');
 			const args = types.length === 2 && joinedTypes.indexOf(' -> ') < 0 ? '' + types[0]
 				: `(${formatBlock(joinedTypes)})`;
 			const typeVars = typeVariables.length ? 'forall. ' + typeVariables.join(' ') + ' => ' : '';
 			return typeVars + args + ' -> ' + types[types.length - 1];
-		}
+		},
 	};
 }

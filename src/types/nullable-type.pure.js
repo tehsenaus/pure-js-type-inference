@@ -1,4 +1,4 @@
-import { NULLABLE_TYPE } from "../types.pure";
+import { NULLABLE_TYPE } from '../types.pure';
 
 export function createNullableType(underlyingType) {
 	return {
@@ -6,6 +6,6 @@ export function createNullableType(underlyingType) {
 		underlyingType,
 		toString() {
 			return underlyingType.toString() + '?';
-		}
-	}
+		},
+	};
 }
