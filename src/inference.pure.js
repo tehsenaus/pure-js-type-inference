@@ -3,7 +3,7 @@
 import * as babylon from 'babylon';
 import traverse from 'babel-traverse';
 import { prune, unify, allocTypeVariable, createFunctionType, createObjectType,
-	NUMBER_TYPE, STRING_TYPE, INITIAL_TYPE_VARIABLES_STATE, UNIT_TYPE, OBJECT_TYPE, BOOLEAN_TYPE, createArrayType, createTupleType, commonSubtype, fresh } from './types.pure';
+	NUMBER_TYPE, STRING_TYPE, INITIAL_TYPE_VARIABLES_STATE, UNIT_TYPE, OBJECT_TYPE, BOOLEAN_TYPE, createArrayType, createTupleType, commonSubtype, fresh, showTypeVariables } from './types.pure';
 import { mapWithState, reduceWithState, mapWithStateTakeLast } from './util.pure';
 import { throwNiceError } from './error.pure';
 import { analyseFunction } from './inference/function.pure';
@@ -14,9 +14,9 @@ export function analyseCall(funType, args, state) {
 	const { variable: resultTypeVariable, typeVariables } = allocTypeVariable(freshTypeVariables);
 	const stateWithVar = {
 		...state,
-		typeVariables,	
+		typeVariables,
 	};
-	
+
 	const { result: argTypes, nextState } =
 		args.length ? mapWithState(stateWithVar, args, analyse)
 			: { result: [UNIT_TYPE], nextState: stateWithVar };
@@ -32,7 +32,7 @@ export function analyseCall(funType, args, state) {
 		// console.log('unifyCall: %s && %s', freshCallType, freshFunType)
 		const [unifiedCallType, unifiedFunType, nextTypeVariables]
 			= unify(callType, freshFunType, freshCallTypeVariables);
-		
+
 		const unifiedResultType = unifiedCallType.types[argTypes.length];
 
 		return {
@@ -51,6 +51,7 @@ export function analyseCall(funType, args, state) {
 }
 
 export function analyse(node, state) {
+	console.assert(node);
 	try {
 		return _analyse(node, state);
 	} catch (e) {
@@ -75,7 +76,7 @@ export function _analyse(node, state) {
 		const name = node.id.name;
 
 		const { result, state: nextState } = analyseFunction(node, state, analyse);
-			
+
 		return {
 			result,
 			state: {
@@ -171,7 +172,7 @@ export function _analyse(node, state) {
 				if ( type.type !== OBJECT_TYPE ) {
 					throw 'object spread of non-object type: ' + type;
 				}
-						
+
 				return {
 					result: {
 						...props,
@@ -183,7 +184,7 @@ export function _analyse(node, state) {
 
 			default:
 				throw 'unknown property type in ObjectExpression: ' + p.type;
-			}	
+			}
 		}, {});
 
 		const result = createObjectType(types);
@@ -195,7 +196,7 @@ export function _analyse(node, state) {
 			}
 		}
 	}
-		
+
 	case 'ArrayExpression': {
 		const { result: elementTypes, nextState } = mapWithState(state, node.elements, analyse);
 
@@ -292,15 +293,13 @@ export function analyseSource(src) {
 	const ast = babylon.parse(wrappedSrc, parseOptions);
 	const res = analyse(ast.program.body[0], { ...initialState, src: wrappedSrc });
 
-	console.log(prune(res.result, res.state.typeVariables).toString());
+	console.log('RESULT = %s', prune(res.result, res.state.typeVariables));
 
 	const vars = res.state.typeVariables.variables;
-	console.log(Object.keys(vars).map(k => `${k} = ${vars[k]}`).join('\n'));
+	console.log(showTypeVariables(res.state.typeVariables));
 
 	return res.result;
 }
-
-// analyseSource(`return function f(x) { return !x ? {} : f(x[0]) }`);
 
 // analyseSource(`return m => x => x[m]`);
 
@@ -318,7 +317,7 @@ export function analyseSource(src) {
 // 		return { result: r.result, nextState: r.state };
 // 	}, { result: initial, nextState: state });
 // };
-// return mapWithState({}, [1, 2], (acc, v, state, i) => ({}), {});
+// return mapWithState({}, [1, 2], (acc, v, state, i) => ({ result: {}, state: {} }), {});
 // `);
 
 // analyseSource(`return (state, values, f, initial) => {
@@ -328,18 +327,4 @@ export function analyseSource(src) {
 // 	}, { result: initial, nextState: state });
 // }`);
 
-
-// analyseSource('return function compose(f, g) { return x => g(f(x)) }');
-// analyseSource('return function head(xs) { return xs[0] }');
-// analyseSource('function head(xs) { return xs[0] }; return head([1, 2])');
-// analyseSource('function foot(xs) { return xs[xs.length - 1] }; return foot([1, 2])');
-// analyseSource('return [1, 2]');
-
-// analyseSource('const f = (x, y) => x + y; return f(1, 2)');
-
-// analyseSource('return { x: 1, y: 2, f: x => x }');
-// analyseSource('return { ...{x: 1, y: 2}, f: x => x }');
 // analyseSource('return s => ({ ...s, c: 1 })');
-
-// analyseSource(`return (x,y) => y`);
-// analyseSource(`const id = x => x; id(1); id('a'); return id;`);
