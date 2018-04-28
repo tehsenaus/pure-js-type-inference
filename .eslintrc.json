@@ -10,7 +10,8 @@
 		"dot-location": ["error", "property"],
 		"operator-linebreak": ["error", "before"],
 		"valid-jsdoc": ["off"],
-		"object-curly-spacing": ["error", "always"]
+		"object-curly-spacing": ["error", "always"],
+		"arrow-parens": ["off"]
 	},
 	"parserOptions": {
 		"ecmaVersion": 6,

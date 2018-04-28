@@ -44,7 +44,7 @@ describe('type inference', function() {
 		});
 
 		it('objects', function() {
-			expect(typeOfExpr('{}')).toBe('{}');
+			expect(typeOfExpr('{}')).toMatch(/\{\[\]: String -> #[a-z]\?\}/);
 			expect(typeOfExpr('{a: 1}')).toBe('{a: Number}');
 			expect(typeOfExpr('{a: 1, b: true}')).toBe('{a: Number, b: Boolean}');
 			expect(typeOfExpr('{\'a\': 1}')).toBe('{a: Number}');
@@ -112,6 +112,28 @@ describe('type inference', function() {
 		it('infers type from spread of known properies', () => {
 			expect(typeOfExpr(`{ ...{x: 1, y: 2}, f: x => x }`))
 				.toBe('{x: Number, y: Number, f: #a -> #a}');
+		});
+
+		it('infers type from dynamic property', () => {
+			expect(typeOfExpr(`{ ['x']: 1 }`))
+				.toBe('{[]: String -> Number?}');
+		});
+
+		it('infers type from spread of dynamic property', () => {
+			expect(typeOfExpr(`{ ...{ ['x']: 1 } }`))
+				.toBe('{[]: String -> Number?}');
+		});
+
+		it('rejects incompatible spread of dynamic property', () => {
+			expect(() => {
+				typeOfExpr(`{ ...{ ['x']: true }, ...{ ['y']: 1 } }`);
+			}).toThrow();
+		});
+
+		it('rejects incompatible add of dynamic property', () => {
+			expect(() => {
+				typeOfExpr(`{ ...{ ['x']: true }, ['y']: 1 }`);
+			}).toThrow();
 		});
 	});
 
