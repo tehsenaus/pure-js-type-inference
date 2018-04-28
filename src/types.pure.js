@@ -3,7 +3,7 @@
 import { mapWithState, reduceWithState } from './util.pure';
 import {FUNCTION_TYPE, OBJECT_TYPE, PRIMITIVE_TYPE, NULLABLE_TYPE,
 	INDETERMINATE_TYPE_NAME, TYPE_VARIABLE} from './types/type-constants.pure';
-import {allocTypeVariable} from './type-variables.pure';
+import {allocTypeVariable, withTypeVariablesApplicative} from './type-variables.pure';
 import { createFunctionType } from './types/function-type.pure';
 import { createObjectType } from './types/object-type.pure';
 import { createNullableType } from './types/nullable-type.pure';
@@ -220,42 +220,31 @@ export const replaceInType = (t, replacements) => traverseType(identityApplicati
 //
 // This will unchain variables until it gets to a type or variable without an
 // instance. See `unify` for some details about type variable instances.
-export function prune(type, typeVariables) {
+
+export const prune_ = traverseType(withTypeVariablesApplicative)(type => typeVariables => {
 	console.assert(typeVariables);
 
 	switch (type.type) {
-	case TYPE_VARIABLE: {
-		if ( type.bound ) {
-			return type;
+		case TYPE_VARIABLE: {
+			if ( !type.bound ) {
+				const pruned = typeVariables.variables[type.id];
+				if ( pruned.id === type.id ) {
+					return [pruned, typeVariables];
+				}
+				// console.log(type.id, pruned);
+				return prune_(pruned)(typeVariables);
+			}
 		}
-		const pruned = typeVariables.variables[type.id];
-		if ( pruned.id === type.id ) {
-			return pruned;
-		}
-		return prune(pruned, typeVariables);
 	}
-	case FUNCTION_TYPE: {
-		return createFunctionType(type.types.map(t => prune(t, typeVariables)), type);
-	}
-	case OBJECT_TYPE: {
-		const prunedProps = Object.keys(type.props).reduce((props, k) => {
-			const prop = type.props[k];
-			const prunedProp = prune(prop, typeVariables);
-			return prunedProp === prop ? props : {
-				...props,
-				[k]: prunedProp,
-			};
-		}, type.props);
-		return prunedProps === type.props ? type : createObjectType(prunedProps);
-	}
-	case PRIMITIVE_TYPE:
-	case INDETERMINATE_TYPE_NAME:
-		return type;
-	case NULLABLE_TYPE:
-		return createNullableType(prune(type.underlyingType, typeVariables));
-	}
-	throw new Error("prune: invalid type: " + type.type);
-};
+	
+	return [type, typeVariables];
+});
+
+export function prune(type, typeVariables) {
+	const r = prune_(type)(typeVariables);
+	return r[0];
+}
+
 
 // ### Unification
 // This is the process of finding a type that satisfies some given constraints. In this system, unification will try to satisfy that either:
