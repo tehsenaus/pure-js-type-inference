@@ -18,52 +18,11 @@ export function analyseMemberExpression(node, state, analyse) {
 
 	const {variable: memberType, typeVariables} = allocTypeVariable(nextState.typeVariables);
 
-	if (
-		(!node.computed && node.property.type === 'Identifier') ||
-		node.property.type === 'NumericLiteral'
-	) {
-		const propName = node.property.name || node.property.value.toString();
+	const isDynamicProperty = node.computed
+		&& node.property.type !== 'Identifier'
+		&& node.property.type !== 'NumericLiteral';
 
-		if (lhsType.type === TYPE_VARIABLE && prune(lhsType, typeVariables).type === OBJECT_TYPE) {
-			// Performing another access on an existing object type. Either this is a new
-			// property, in which case we add it to the existing type. Otherwise it's
-			// an existing property, and should be unified.
-
-			const objectType = prune(lhsType, typeVariables);
-
-			if (propName in objectType.props) {
-				// Existing prop
-				return {
-					result: memberType,
-					state: unifyInState(memberType, objectType.props[propName], state, typeVariables),
-				};
-			} else {
-				// New prop
-				const nextObjectType = addObjectProperty(objectType, propName, memberType);
-				const nextTypeVariables = setTypeVariable(lhsType, nextObjectType, typeVariables);
-
-
-				return {
-					result: memberType,
-					state: {
-						...nextState,
-						typeVariables: nextTypeVariables,
-					},
-				};
-			}
-		} else {
-			const objectType = createObjectType({
-				[propName]: memberType,
-			});
-
-			return {
-				result: memberType,
-				state: unifyInState(lhsType, objectType, state, typeVariables),
-			};
-		}
-	} else {
-		// Dynamic property access
-
+	if (isDynamicProperty) {
 		return analyse(
 			{
 				...node,
@@ -83,6 +42,47 @@ export function analyseMemberExpression(node, state, analyse) {
 			state
 		);
 	}
+
+	const propName = node.property.name || node.property.value.toString();
+
+	const isExistingObjectType = lhsType.type === TYPE_VARIABLE
+		&& prune(lhsType, typeVariables).type === OBJECT_TYPE;
+	if (!isExistingObjectType) {
+		const objectType = createObjectType({
+			[propName]: memberType,
+		});
+
+		return {
+			result: memberType,
+			state: unifyInState(lhsType, objectType, state, typeVariables),
+		};
+	}
+
+	// Performing another access on an existing object type. Either this is a new
+	// property, in which case we add it to the existing type. Otherwise it's
+	// an existing property, and should be unified.
+
+	const objectType = prune(lhsType, typeVariables);
+
+	const isExistingProp = propName in objectType.props;
+	if (isExistingProp) {
+		return {
+			result: memberType,
+			state: unifyInState(memberType, objectType.props[propName], state, typeVariables),
+		};
+	}
+
+	// New prop
+	const nextObjectType = addObjectProperty(objectType, propName, memberType);
+	const nextTypeVariables = setTypeVariable(lhsType, nextObjectType, typeVariables);
+
+	return {
+		result: memberType,
+		state: {
+			...nextState,
+			typeVariables: nextTypeVariables,
+		},
+	};
 }
 
 export function unifyInState(a, b, state, typeVariables = state.typeVariables) {
