@@ -1,6 +1,9 @@
 import { unify, allocTypeVariable, createFunctionType, UNIT_TYPE, TYPE_VARIABLE,
-    getAllTypeVariablesInType, prune, getTypeVariable, createTypeVariable, replaceInType } from '../types.pure';
+    getAllTypeVariablesInType, prune, getTypeVariable, createTypeVariable, replaceInType, showTypeVariables, occursInTypeVariables } from '../types.pure';
 import { mapWithState } from '../util.pure';
+import createDebug from 'debug';
+
+const debug = createDebug('pure-js-type-inference:inference:function');
 
 export function analyseFunction(node, state, analyse) {
     const outerScope = state.env;
@@ -53,18 +56,25 @@ export function analyseFunction(node, state, analyse) {
     
     // Extract any bound type variables: that is, newly defined type variables which aren't
     // unified to any concrete type, or type variable in the outer scope.
+    // Also we must check that outer type variables are not unified to types containing these vars,
+    // otherwise they are leaking out of our scope and aren't local.
     const typeVars = getAllTypeVariablesInType(result);
     const boundTypeVars = typeVars.filter(typeVar => {
         const pruned = prune(typeVar, nextState.typeVariables);
-        return pruned.type === TYPE_VARIABLE && !getTypeVariable(
-            pruned,
-            outerTypeVariables
-        );
+        return pruned.type === TYPE_VARIABLE &&
+            !getTypeVariable(pruned, outerTypeVariables) &&
+            !occursInTypeVariables(pruned, outerTypeVariables, nextState.typeVariables);
     });
+
+    debug('TVs: %s %s bound=%s vars=%s', result, typeVars, boundTypeVars, showTypeVariables(outerTypeVariables, nextState.typeVariables));
+
     const boundTypeVarReplacements = boundTypeVars.reduce((replacements, tv, i) => {
         return {
             ...replacements,
-            [tv.id]: replacements[tv.id] || createTypeVariable(Object.keys(replacements).length, { bound: true }),
+            [tv.id]: replacements[tv.id] || createTypeVariable(
+                Object.keys(replacements).length,
+                { bound: true }
+            ),
         }
     }, {});
 
@@ -88,7 +98,7 @@ export function analyseFunctionBody(body, argTypes, resultTypeVar, functionType,
 		: [resultType, resultType, nextState.typeVariables];
 	
 	return {
-		result: functionType || createFunctionType([...argTypes, unifiedResultType]),
+		result: prune(functionType || createFunctionType([...argTypes, unifiedResultType]), nextTypeVariables),
 		state: {
 			...nextState,
 			typeVariables: nextTypeVariables,

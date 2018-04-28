@@ -1,8 +1,12 @@
-var typeinference = require('../src/inference.pure');
+const types = require('../src/types.pure');
+const typeinference = require('../src/inference.pure');
 
 describe('type inference', function(){
+    function analyseExpr(s) {
+        return typeinference.analyseSource('return ' + s);
+    }
     function typeOfExpr(s) {
-        return typeinference.analyseSource('return ' + s).toString();
+        return analyseExpr(s).toString();
     }
 
     describe('literals', function() {
@@ -25,17 +29,19 @@ describe('type inference', function(){
             expect(typeOfExpr('true')).toBe('Boolean');
         });
 
-        // it('arrays of primitives', function(){
-        //     expect(typeOfExpr('[""]')).toBe('[String]');
-        //     expect(typeOfExpr('[true, false]')).toBe('[Boolean]');
-        //     expect(typeOfExpr('[1, 2, 3]')).toBe('[Number]');
-        // });
+        it('arrays of primitives', function(){
+            expect(analyseExpr('[""]').props['0'].toString()).toBe('String');
+            expect(analyseExpr('[""]').props[types.ARRAY_LOOKUP_OPERATOR].toString()).toBe('Number -> String?');
+            expect(analyseExpr('[true, false]').props['0'].toString()).toBe('Boolean');
+            expect(analyseExpr('[true, false]').props['1'].toString()).toBe('Boolean');
+            expect(analyseExpr('[1, 2, 3]').props['2'].toString()).toBe('Number');
+        });
 
-        // it('empty arrays as generic', function() {
-        //     var type = typeOfCode('[]');
-        //     expect(type instanceof types.ArrayType).toBe(true);
-        //     expect(type.type instanceof types.Variable).toBe(true);
-        // });
+        it('types empty arrays as generic', function() {
+            const type = analyseExpr('[]');
+            expect(type.type).toBe(types.OBJECT_TYPE);
+            expect(''+type.props[types.ARRAY_LOOKUP_OPERATOR]).toBe('Number -> #a?');
+        });
 
         it('objects', function() {
             expect(typeOfExpr('{}')).toBe('{}');
@@ -53,9 +59,78 @@ describe('type inference', function(){
             expect(typeOfExpr('x => x')).toBe('#a -> #a');
         });
 
+        it('types higher order function', () => {
+            expect(typeOfExpr('function compose(f, g) { return x => g(f(x)) }'))
+                .toBe('(#a -> #b, #b -> #c) -> #a -> #c');
+        });
+
         it('infers number from function body', () => {
             expect(typeOfExpr('x => -x')).toBe('Number -> Number');
             expect(typeOfExpr('x => x < 10')).toBe('Number -> Boolean');
+        });
+
+        it('allows polymorphic function to be called twice with different types', () => {
+            expect(() => {
+                typeOfExpr(`() => {
+                    const id = x => x;
+                    id(1);
+                    id('a');
+                }`);
+            }).not.toThrow();
+        });
+    });
+
+    describe('operators', () => {
+        describe('logical', () => {
+            it('infers boolean type', () => {
+                expect(typeOfExpr('x => !x')).toBe('#a -> Boolean');
+            });
+        });
+
+        describe('arithmetic', () => {
+            it('infers numeric type', () => {
+                expect(typeOfExpr('(x,y) => x + y')).toBe('(Number, Number) -> Number');
+            });
+
+            it('rejects bad calls', () => {
+                expect(() => {
+                    typeOfExpr(`1 + "a"`)
+                }).toThrow();
+
+                expect(() => {
+                    typeOfExpr(`1 + []`)
+                }).toThrow();
+
+                expect(() => {
+                    typeOfExpr(`1 + {}`)
+                }).toThrow();
+            });
+        });
+    });
+
+    describe('property access', () => {
+        it('infers type from chained property access', () => {
+            expect(typeOfExpr('a => a.x.y.z[0]')).toBe('{x: {y: {z: {0: #a}}}} -> #a');
+
+            expect(() => {
+                analyseExpr(`const f = a => a.x.y.z[0]; f({ x: {} })`)
+            }).toThrow();
+        });
+
+        it('infers type of property from use', () => {
+            expect(typeOfExpr('a => a.x + 1')).toBe('{x: Number} -> Number');
+            expect(typeOfExpr('a => a.x + a.y')).toBe('{x: Number, y: Number} -> Number');
+
+            expect(() => {
+                analyseExpr(`const f = a => a.x + a.y; return f({ x: 1, y: 'a' })`)
+            }).toThrow();
+        });
+    });
+
+    describe('recursion', () => {
+        it('types recursive fibonacci', () => {
+            expect(typeOfExpr('function fib(n) { return n < 1 ? 1 : fib(n-2) + fib(n-1) }'))
+                .toBe('Number -> Number');
         });
     });
 

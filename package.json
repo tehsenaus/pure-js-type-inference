@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "babel-traverse": "^6.26.0",
-    "babylon": "^6.18.0"
+    "babylon": "^6.18.0",
+    "debug": "^3.1.0"
   }
 }

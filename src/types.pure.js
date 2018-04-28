@@ -58,7 +58,23 @@ export function allocTypeVariable(typeVariables, { idString } = {}) {
     };
 }
 
-const typeVariablesApplicative = {
+export function occursInTypeVariables(type, typeVariables, pruneContext = typeVariables) {
+    for ( const k in typeVariables.variables ) {
+        const v = typeVariables.variables[k];
+        if ( occursInType(type, v, pruneContext) ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+export function showTypeVariables(typeVariables, pruneContext = typeVariables) {
+    return Object.keys(typeVariables.variables).map(id => {
+        return '' + typeVariables.variables[id] + ': ' + prune(typeVariables.variables[id], pruneContext);
+    }).join(', ');
+}
+
+const withTypeVariablesApplicative = {
     map: (f, fx) => typeVariables => {
         const [x, nextTypeVariables] = fx(typeVariables);
         return [f(x), nextTypeVariables];
@@ -187,7 +203,14 @@ export function createArrayType(elementType) {
     const typeVarB = createTypeVariable(1, { bound: true });
     return createObjectType({
         'length': NUMBER_TYPE,
-        [ARRAY_LOOKUP_OPERATOR]: createFunctionType([NUMBER_TYPE, createNullableType(elementType)]),
+        
+        [ARRAY_LOOKUP_OPERATOR]: createFunctionType([
+            NUMBER_TYPE,
+            createNullableType(elementType || typeVarA)
+        ], {
+            typeVariables: elementType ? [] : [typeVarA]
+        }),
+
         'reduce': createFunctionType([
             createFunctionType([typeVarB, typeVarA, NUMBER_TYPE, typeVarB]),
             typeVarB,
@@ -198,7 +221,12 @@ export function createArrayType(elementType) {
     });
 }
 
-export function createTupleType(elementTypes, elementType = INDETERMINATE_TYPE) {
+export function createTupleType(elementTypes, typeVariables) {
+    console.assert(typeVariables);
+    
+    const elementType = elementTypes.length ? elementTypes.reduce((t1, t2) => commonSubtype(t1, t2, typeVariables))
+        : null;
+    
     return createObjectType({
         ...createArrayType(elementType).props,
         ...elementTypes.reduce((elementProps, elementType, i) => {
@@ -277,23 +305,21 @@ export function fresh(rawType, typeVariables) {
                 {}
             );
 
-            console.log('fresh', ''+rawType, ''+type, freshVariableReplacements);
-
             const { result: freshTypes, nextState: nextTypeVariables } = mapWithState(
                 freshTypeVariables,
                 type.types,
-                (t, typeVariables) => {
+                (t, typeVariables, i) => {
                     const replaced = replaceInType(t, freshVariableReplacements);
 
-                    const [freshType, state] = fresh(
+                    const isReturnType = i === type.types.length - 1;
+                    const [freshType, state] = isReturnType ? fresh(
                         replaced,
                         typeVariables
-                    );
+                    ) : [replaced, typeVariables];
+
                     return { result: freshType, state };
                 }
             )
-
-            console.log('after fresh', ''+type, freshVariableReplacements);
 
             return [
                 createFunctionType(freshTypes),
@@ -334,14 +360,17 @@ export function fresh(rawType, typeVariables) {
     throw new Error("fresh: invalid type: " + type.type);
 }
 
-// reduceA : (Functor F) => (r -> a -> r) -> [F a] -> F r
+// reduceA : (Applicative F) => (r -> a -> r) -> [F a] -> F r
+// map : (r -> a -> r) -> F r -> F (a -> r)
+// ap : F (a -> r) -> F a -> F r
+// of : a -> F a
 const reduceA = ({ map, ap, of }) => (f, init) => actions =>
     actions.reduce(
-        (fr, fa, i) => ap(map(a => r => f(r, a, i), fa), fr),
+        (fr, fa, i) => ap(map(r => a => f(r, a, i), fr), fa),
         of(init)
     );
 
-// sequenceA : (Functor F) => [F r] -> F [r]
+// sequenceA : (Applicative F) => [F r] -> F [r]
 const sequenceA = applicative => reduceA(applicative)((rs, r) => [...rs, r], []);
 
 export const traverseType = (applicative) => (f) => {
@@ -547,8 +576,6 @@ export function unify(t1Raw, t2Raw, typeVariables) {
         const t1keys = Object.keys(t1.props);
         const t2keys = Object.keys(t2.props);
         const keysSet = new Set([...t1keys, ...t2keys]);
-
-        console.log('unify', t1, t2)
 
         // t1 may be a subtype of t2, in which case it may have more keys.
         if ( keysSet.size === t1keys.length ) {

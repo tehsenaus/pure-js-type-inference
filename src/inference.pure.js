@@ -199,10 +199,8 @@ export function _analyse(node, state) {
 		case 'ArrayExpression': {
 			const { result: elementTypes, nextState } = mapWithState(state, node.elements, analyse);
 
-			const elementType = elementTypes.reduce((t1, t2) => commonSubtype(t1, t2, nextState.typeVariables));
-
 			return {
-				result: createTupleType(elementTypes, elementType),
+				result: createTupleType(elementTypes, nextState.typeVariables),
 				state: nextState,
 			}
 		}
@@ -302,14 +300,8 @@ export function analyseSource(src) {
 	return res.result;
 }
 
-// analyseSource(`return x => !x`);
 // analyseSource(`return function f(x) { return !x ? {} : f(x[0]) }`);
 
-// analyseSource(`return a => a.x.y.z[0]`);
-// analyseSource(`const f = a => a.x.y.z[0]; f({ x: {} })`);
-// analyseSource(`return a => a.x + 1`);
-// analyseSource(`return a => a.x + a.y`);
-// analyseSource(`const f = a => a.x + a.y; return f({ x: 1, y: 'a' })`);
 // analyseSource(`return m => x => x[m]`);
 
 // analyseSource(`return (state, values, f, initial) => {
@@ -337,15 +329,7 @@ export function analyseSource(src) {
 // }`);
 
 
-// analyseSource('return 1 + 1');
-// analyseSource('1 + "a"');
-
-// analyseSource('return [1]');
-
-// analyseSource('return function f(x, y) { return x + y; }');
-// analyseSource('return function fib(n) { return n < 1 ? 1 : fib(n-2) + fib(n-1) }');
-
-//analyseSource('return function compose(f, g) { return x => g(f(x)) }');
+// analyseSource('return function compose(f, g) { return x => g(f(x)) }');
 // analyseSource('return function head(xs) { return xs[0] }');
 // analyseSource('function head(xs) { return xs[0] }; return head([1, 2])');
 // analyseSource('function foot(xs) { return xs[xs.length - 1] }; return foot([1, 2])');
@@ -357,5 +341,5 @@ export function analyseSource(src) {
 // analyseSource('return { ...{x: 1, y: 2}, f: x => x }');
 // analyseSource('return s => ({ ...s, c: 1 })');
 
-analyseSource(`return x => x`);
-analyseSource(`const id = x => x; id(1); id('a'); return id;`);
+// analyseSource(`return (x,y) => y`);
+// analyseSource(`const id = x => x; id(1); id('a'); return id;`);
