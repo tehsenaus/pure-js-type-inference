@@ -19,7 +19,7 @@ export function analyseCall(funType, args, state) {
 	
 	const { result: argTypes, nextState } =
 		args.length ? mapWithState(stateWithVar, args, analyse)
-		: { result: [UNIT_TYPE], nextState: stateWithVar };
+			: { result: [UNIT_TYPE], nextState: stateWithVar };
 
 	const types = [
 		...argTypes,
@@ -62,211 +62,211 @@ export function _analyse(node, state) {
 	console.assert(state);
 
 	switch (node.type) {
-		case 'ExpressionStatement': {
-			return analyse(node.expression, state);
-		}
+	case 'ExpressionStatement': {
+		return analyse(node.expression, state);
+	}
 
-		case 'FunctionExpression':
-		case 'ArrowFunctionExpression': {
-			return analyseFunction(node, state, analyse);
-		}
+	case 'FunctionExpression':
+	case 'ArrowFunctionExpression': {
+		return analyseFunction(node, state, analyse);
+	}
 
-		case 'FunctionDeclaration': {
-			const name = node.id.name;
+	case 'FunctionDeclaration': {
+		const name = node.id.name;
 
-			const { result, state: nextState } = analyseFunction(node, state, analyse);
+		const { result, state: nextState } = analyseFunction(node, state, analyse);
 			
-			return {
-				result,
-				state: {
-					...nextState,
-					env: {
-						...state.env,
-						[name]: result,
-					},
+		return {
+			result,
+			state: {
+				...nextState,
+				env: {
+					...state.env,
+					[name]: result,
 				},
-			};
-		}
+			},
+		};
+	}
 
-		case 'VariableDeclaration': {
-			return mapWithStateTakeLast(state, node.declarations, analyse);
-		}
-		case 'VariableDeclarator': {
-			const { result: type, state: nextState } = analyse(node.init, state);
-			return {
-				result: UNIT_TYPE,
-				state: {
-					...nextState,
-					env: {
-						...nextState.env,
-						[node.id.name]: type,
-					}
-				}
-			};
-		}
-
-		case 'CallExpression': {
-			const { result: calleeType, state: nextState } = analyse(node.callee, state);
-			return analyseCall(calleeType, node.arguments, nextState);
-		}
-
-		case 'UnaryExpression': {
-			const args = [node.argument];
-			const name = `${node.operator}`;
-
-			if (!(name in state.env)) {
-				throw "unknown identifier: " + name;
-			}
-
-			return analyseCall(state.env[name], args, state);
-		}
-
-		case 'BinaryExpression': {
-			const args = [node.left, node.right];
-			const name = `(${node.operator})`;
-
-			if (!(name in state.env)) {
-				throw "unknown identifier: " + name;
-			}
-
-			return analyseCall(state.env[name], args, state);
-		}
-
-		case 'ConditionalExpression': {
-			const { result: testType, state: stateWithTest } = analyse(node.test, state);
-			const [unifiedTestType, boolType, typeVariables] = unify(testType, BOOLEAN_TYPE, stateWithTest.typeVariables);
-
-			const { result: consType, state: stateWithCons } = analyse(node.consequent, stateWithTest);
-			const { result: altType, state: nextState } = analyse(node.alternate, stateWithTest);
-
-			const [unifiedConsType, unifiedAltType, nextTypeVariables] = unify(consType, altType, nextState.typeVariables);
-
-			return {
-				result: unifiedConsType,
-				state: {
-					...nextState,
-					typeVariables: nextTypeVariables,
-				}
-			};
-		}
-
-		case 'ObjectExpression': {
-			const { result: types, nextState } = reduceWithState(state, node.properties, (props, p, state) => {
-				switch (p.type) {
-					case 'ObjectProperty': {
-						const { result: type, state: nextState } = analyse(p.value, state);
-						return {
-							result: {
-								...props,
-								[p.key.name || p.key.value]: type,
-							},
-							state: nextState,
-						};
-					}
-
-					case 'SpreadProperty': {
-						const { result: type, state: nextState } = analyse(p.argument, state);
-
-						// TODO: create intersection type, if this is a type variable
-						if ( type.type !== OBJECT_TYPE ) {
-							throw 'object spread of non-object type: ' + type;
-						}
-						
-						return {
-							result: {
-								...props,
-								...type.props,
-							},
-							state: nextState,
-						};
-					}
-
-					default:
-						throw 'unknown property type in ObjectExpression: ' + p.type;
-				}	
-			}, {});
-
-			const result = createObjectType(types);
-
-			return {
-				result,
-				state: {
-					...nextState,
+	case 'VariableDeclaration': {
+		return mapWithStateTakeLast(state, node.declarations, analyse);
+	}
+	case 'VariableDeclarator': {
+		const { result: type, state: nextState } = analyse(node.init, state);
+		return {
+			result: UNIT_TYPE,
+			state: {
+				...nextState,
+				env: {
+					...nextState.env,
+					[node.id.name]: type,
 				}
 			}
-		}
-		
-		case 'ArrayExpression': {
-			const { result: elementTypes, nextState } = mapWithState(state, node.elements, analyse);
+		};
+	}
 
-			return {
-				result: createTupleType(elementTypes, nextState.typeVariables),
-				state: nextState,
+	case 'CallExpression': {
+		const { result: calleeType, state: nextState } = analyse(node.callee, state);
+		return analyseCall(calleeType, node.arguments, nextState);
+	}
+
+	case 'UnaryExpression': {
+		const args = [node.argument];
+		const name = `${node.operator}`;
+
+		if (!(name in state.env)) {
+			throw "unknown identifier: " + name;
+		}
+
+		return analyseCall(state.env[name], args, state);
+	}
+
+	case 'BinaryExpression': {
+		const args = [node.left, node.right];
+		const name = `(${node.operator})`;
+
+		if (!(name in state.env)) {
+			throw "unknown identifier: " + name;
+		}
+
+		return analyseCall(state.env[name], args, state);
+	}
+
+	case 'ConditionalExpression': {
+		const { result: testType, state: stateWithTest } = analyse(node.test, state);
+		const [unifiedTestType, boolType, typeVariables] = unify(testType, BOOLEAN_TYPE, stateWithTest.typeVariables);
+
+		const { result: consType, state: stateWithCons } = analyse(node.consequent, stateWithTest);
+		const { result: altType, state: nextState } = analyse(node.alternate, stateWithTest);
+
+		const [unifiedConsType, unifiedAltType, nextTypeVariables] = unify(consType, altType, nextState.typeVariables);
+
+		return {
+			result: unifiedConsType,
+			state: {
+				...nextState,
+				typeVariables: nextTypeVariables,
 			}
-		}
+		};
+	}
 
-		case 'MemberExpression': {
-			return analyseMemberExpression(node, state, analyse);
-		}
-
-		case 'ReturnStatement': {
-			return analyse(node.argument, state);
-		}
-
-		case 'Identifier': {
-			if ( node.name in state.env ) {
+	case 'ObjectExpression': {
+		const { result: types, nextState } = reduceWithState(state, node.properties, (props, p, state) => {
+			switch (p.type) {
+			case 'ObjectProperty': {
+				const { result: type, state: nextState } = analyse(p.value, state);
 				return {
-					result: state.env[node.name],
-					state,
+					result: {
+						...props,
+						[p.key.name || p.key.value]: type,
+					},
+					state: nextState,
 				};
-			} else {
-				console.error(state.env);
-				throw "unknown identifier: " + node.name;
+			}
+
+			case 'SpreadProperty': {
+				const { result: type, state: nextState } = analyse(p.argument, state);
+
+				// TODO: create intersection type, if this is a type variable
+				if ( type.type !== OBJECT_TYPE ) {
+					throw 'object spread of non-object type: ' + type;
+				}
+						
+				return {
+					result: {
+						...props,
+						...type.props,
+					},
+					state: nextState,
+				};
+			}
+
+			default:
+				throw 'unknown property type in ObjectExpression: ' + p.type;
+			}	
+		}, {});
+
+		const result = createObjectType(types);
+
+		return {
+			result,
+			state: {
+				...nextState,
 			}
 		}
+	}
+		
+	case 'ArrayExpression': {
+		const { result: elementTypes, nextState } = mapWithState(state, node.elements, analyse);
 
-		case 'NumericLiteral': {
+		return {
+			result: createTupleType(elementTypes, nextState.typeVariables),
+			state: nextState,
+		}
+	}
+
+	case 'MemberExpression': {
+		return analyseMemberExpression(node, state, analyse);
+	}
+
+	case 'ReturnStatement': {
+		return analyse(node.argument, state);
+	}
+
+	case 'Identifier': {
+		if ( node.name in state.env ) {
 			return {
-				result: NUMBER_TYPE,
+				result: state.env[node.name],
 				state,
-			}
-		}
-		case 'StringLiteral': {
-			return {
-				result: STRING_TYPE,
-				state,
-			}
-		}
-		case 'BooleanLiteral': {
-			return {
-				result: BOOLEAN_TYPE,
-				state,
-			}
-		}
-
-		case 'Program':
-		case 'BlockStatement': {
-			const { result: bodyTypes, nextState } = mapWithState(state, node.body, analyse);
-
-			const returnType = bodyTypes.filter((t, i) => node.body[i].type === 'ReturnStatement')[0];
-
-			return {
-				// TODO: blocks technically have void type
-				result: returnType || UNIT_TYPE,
-				state: nextState,
 			};
+		} else {
+			console.error(state.env);
+			throw "unknown identifier: " + node.name;
 		}
+	}
 
-		case 'EmptyStatement': {
-			return {
-				result: UNIT_TYPE,
-				state,
-			}
+	case 'NumericLiteral': {
+		return {
+			result: NUMBER_TYPE,
+			state,
 		}
+	}
+	case 'StringLiteral': {
+		return {
+			result: STRING_TYPE,
+			state,
+		}
+	}
+	case 'BooleanLiteral': {
+		return {
+			result: BOOLEAN_TYPE,
+			state,
+		}
+	}
 
-		default: {
-			throw 'unknown AST node type: ' + node.type;
+	case 'Program':
+	case 'BlockStatement': {
+		const { result: bodyTypes, nextState } = mapWithState(state, node.body, analyse);
+
+		const returnType = bodyTypes.filter((t, i) => node.body[i].type === 'ReturnStatement')[0];
+
+		return {
+			// TODO: blocks technically have void type
+			result: returnType || UNIT_TYPE,
+			state: nextState,
+		};
+	}
+
+	case 'EmptyStatement': {
+		return {
+			result: UNIT_TYPE,
+			state,
 		}
+	}
+
+	default: {
+		throw 'unknown AST node type: ' + node.type;
+	}
 	}
 }
 
