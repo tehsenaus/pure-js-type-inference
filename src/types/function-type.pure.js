@@ -23,7 +23,7 @@ export function createFunctionType(types, {
 			const joinedTypes = types.slice(0,-1).join(',\n');
 			const args = types.length === 2 && joinedTypes.indexOf(' -> ') < 0 ? '' + types[0]
 				: `(${formatBlock(joinedTypes)})`;
-			const typeVars = typeVariables.length ? 'forall. ' + typeVariables.join(' ') + ' => ' : '';
+			const typeVars = ''; // typeVariables.length ? 'forall. ' + typeVariables.join(' ') + ' => ' : '';
 			return typeVars + args + ' -> ' + types[types.length - 1];
 		}
 	};

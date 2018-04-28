@@ -80,7 +80,7 @@ export function fresh(rawType, typeVariables) {
 				const replaced = replaceInType(t, freshVariableReplacements);
 
 				const isReturnType = i === type.types.length - 1;
-				const [freshType, state] = isReturnType ? fresh(
+				const [freshType, state] = !isReturnType ? fresh(
 					replaced,
 					typeVariables
 				) : [replaced, typeVariables];
@@ -149,7 +149,7 @@ export const traverseType = (applicative) => (f) => {
 		switch (type.type) {
 		case FUNCTION_TYPE: {
 			const result = sequence(type.types.map(traverse));
-			return map(createFunctionType, result);
+			return map(types => createFunctionType(types, type), result);
 		}
 		case OBJECT_TYPE: {
 			const keys = Object.keys(type.props);
