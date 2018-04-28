@@ -1,0 +1,22 @@
+{
+	"extends": "google",
+	"rules": {
+		"indent": ["error", "tab"],
+		"require-jsdoc": ["off"],
+		"no-tabs": ["off"],
+		"max-len": ["warn", { "code": 100 }],
+		"no-throw-literal": ["off"],
+		"no-unused-vars": ["warn"],
+		"dot-location": ["error", "property"],
+		"operator-linebreak": ["error", "before"],
+		"valid-jsdoc": ["off"],
+		"object-curly-spacing": ["error", "always"]
+	},
+	"parserOptions": {
+		"ecmaVersion": 6,
+		"sourceType": "module",
+		"ecmaFeatures": {
+			"experimentalObjectRestSpread": true
+		}
+	}
+}
