@@ -1,258 +1,26 @@
+"use strict";
+
 import { mapWithState, reduceWithState } from './util.pure';
+import {FUNCTION_TYPE, OBJECT_TYPE, PRIMITIVE_TYPE, NULLABLE_TYPE,
+    INDETERMINATE_TYPE_NAME, TYPE_VARIABLE} from './types/type-constants.pure';
+import {allocTypeVariable} from './type-variables.pure';
+import { createFunctionType } from './types/function-type.pure';
+import { createObjectType } from './types/object-type.pure';
+import { createNullableType } from './types/nullable-type.pure';
+import { indent } from './formatting.pure';
 
 /**
  * Based on: https://github.com/puffnfresh/roy/blob/master/src/types.js
  */
 
-export const TYPE_VARIABLE = 'TypeVariable';
-export const FUNCTION_TYPE = 'FunctionType';
-export const PRIMITIVE_TYPE = 'PrimitiveType';
-export const ARRAY_TYPE = 'ArrayType';
-export const OBJECT_TYPE = 'ObjectType';
-export const NULLABLE_TYPE = 'NullableType';
-export const INDETERMINATE_TYPE_NAME = 'IndeterminateType';
-
-export const ARRAY_LOOKUP_OPERATOR = '[]';
-export const DICT_LOOKUP_OPERATOR = '[]';
-
-export const INITIAL_TYPE_VARIABLES_STATE = {
-    nextId: 0,
-    variables: {},
-};
-
-// ## Type variable
-
-// A type variable represents an parameter with an unknown type or any
-// polymorphic type. For example:
-
-//     id = x => x
-
-// Here, `id` has the polymorphic type `#a -> #a`.
-
-export function createTypeVariable(id, { bound = false } = {}) {
-    return {
-        type: TYPE_VARIABLE,
-        id,
-        bound,
-        toString() {
-            return "#" + variableToString(id);
-        }
-    };
-}
-
-export function allocTypeVariable(typeVariables, { idString } = {}) {
-    console.assert(typeVariables && typeof typeVariables.nextId === 'number');
-
-    const nextNextId = idString ? typeVariables.nextId : typeVariables.nextId + 1;
-    const id = idString ? variableFromString(idString) : typeVariables.nextId;
-    const variable = createTypeVariable(id);
-    return {
-        variable,
-        typeVariables: {
-            nextId: nextNextId,
-            variables: {
-                ...typeVariables.variables,
-                [id]: variable,
-            },
-        },
-    };
-}
-
-export function occursInTypeVariables(type, typeVariables, pruneContext = typeVariables) {
-    for ( const k in typeVariables.variables ) {
-        const v = typeVariables.variables[k];
-        if ( occursInType(type, v, pruneContext) ) {
-            return true;
-        }
-    }
-    return false;
-}
-
-export function showTypeVariables(typeVariables, pruneContext = typeVariables) {
-    return Object.keys(typeVariables.variables).map(id => {
-        return '#' + variableToString(+id) + ': ' + prune(typeVariables.variables[id], pruneContext);
-    }).join(', ');
-}
-
-const withTypeVariablesApplicative = {
-    map: (f, fx) => typeVariables => {
-        const [x, nextTypeVariables] = fx(typeVariables);
-        return [f(x), nextTypeVariables];
-    },
-    ap: (ff, fx) => typeVariables => {
-        const [f, intermedTypeVariables] = ff(typeVariables);
-        const [x, nextTypeVariables] = fx(intermedTypeVariables);
-        return [f(x), nextTypeVariables];
-    },
-    of: x => typeVariables => x,
-}
-
-export function getTypeVariable(variable, typeVariables) {
-    console.assert(typeof variable.id === 'number');
-    return typeVariables.variables[variable.id];
-}
-
-export function setTypeVariable(variable, value, typeVariables) {
-    console.assert(typeof variable.id === 'number');
-    return {
-        ...typeVariables,
-        variables: {
-            ...typeVariables.variables,
-            [variable.id]: value,
-        }
-    }
-}
-
-// Type variables should look like `'a`. If the variable has an instance, that
-// should be used for the string instead.
-//
-// This is just bijective base 26.
-function variableToString(n) {
-    if (n >= 26) {
-        return variableToString(n / 26 - 1) + toChar(n % 26);
-    } else {
-        return toChar(n);
-    }
-    
-    return a + toChar(n);
-}
-
-function variableFromString(vs) {
-    return _.reduce(_.map(vs.split(''), function(v, k) {
-        return v.charCodeAt(0) - 'a'.charCodeAt(0) + 26 * k;
-    }), function(accum, n) {
-        return accum + n;
-    }, 0);
-}
-
-
-// A `FunctionType` contains a `types` array. The last element represents the
-// return type. Each element before represents an argument type.
-export function createFunctionType(types, {
-    // Bound type variables (local to the function)
-    typeVariables = [],
-
-    typeClasses = [],
-} = {}) {
-    return {
-        type: FUNCTION_TYPE,
-        types,
-        typeVariables,
-        typeClasses,
-        toString() {
-            const joinedTypes = types.slice(0,-1).join(',\n');
-            const args = types.length === 2 && joinedTypes.indexOf(' -> ') < 0 ? '' + types[0]
-                : `(${formatBlock(joinedTypes)})`;
-            const typeVars = typeVariables.length ? 'forall. ' + typeVariables.join(' ') + ' => ' : '';
-            return typeVars + args + ' -> ' + types[types.length - 1];
-        }
-    };
-}
-
-function formatBlock(str) {
-    if ( str.length < 70 ) {
-        return str.replace(/\n/g, ' ');
-    }
-    return '\n' + indent(str) + '\n';
-}
-function indent(str) {
-    return str.split('\n').map(line => '  ' + line).join('\n');
-}
-
-export function createPrimitiveType(primitiveType) {
-    return {
-        type: PRIMITIVE_TYPE,
-        primitiveType,
-        toString() {
-            return primitiveType;
-        }
-    };
-}
-
-export const UNIT_TYPE = createPrimitiveType('()');
-export const NUMBER_TYPE = createPrimitiveType('Number');
-export const STRING_TYPE = createPrimitiveType('String');
-export const BOOLEAN_TYPE = createPrimitiveType('Boolean');
-
-export const INDETERMINATE_TYPE = {
-    type: INDETERMINATE_TYPE_NAME,
-    toString() {
-        return '?';
-    }
-}
-
-export function createObjectType(props) {
-    return {
-        type: OBJECT_TYPE,
-        props,
-        toString() {
-            return `{${Object.keys(props).map(k => `${k}: ${props[k]}`).join(', ')}}`;
-        }
-    };
-}
-
-export function addObjectProperty(objectType, name, type) {
-    return createObjectType({
-        ...objectType.props,
-        [name]: type,
-    });
-}
-
-export function createArrayType(elementType) {
-    const typeVarA = createTypeVariable(0, { bound: true });
-    const typeVarB = createTypeVariable(1, { bound: true });
-    return createObjectType({
-        'length': NUMBER_TYPE,
-        
-        [ARRAY_LOOKUP_OPERATOR]: createFunctionType([
-            NUMBER_TYPE,
-            createNullableType(elementType || typeVarA)
-        ], {
-            typeVariables: elementType ? [] : [typeVarA]
-        }),
-
-        'reduce': createFunctionType([
-            createFunctionType([typeVarB, typeVarA, NUMBER_TYPE, typeVarB]),
-            typeVarB,
-            typeVarB
-        ], {
-            typeVariables: [typeVarA, typeVarB]
-        }),
-    });
-}
-
-export function createTupleType(elementTypes, typeVariables) {
-    console.assert(typeVariables);
-    
-    const elementType = elementTypes.length ? elementTypes.reduce((t1, t2) => commonSubtype(t1, t2, typeVariables))
-        : null;
-    
-    return createObjectType({
-        ...createArrayType(elementType).props,
-        ...elementTypes.reduce((elementProps, elementType, i) => {
-            return {
-                ...elementProps,
-                [i]: elementType
-            }
-        }, {})
-    });
-}
-
-export function createDictType(memberType) {
-    return createObjectType({
-        [DICT_LOOKUP_OPERATOR]: createFunctionType([STRING_TYPE, memberType]),
-    });
-}
-
-export function createNullableType(underlyingType) {
-    return {
-        type: NULLABLE_TYPE,
-        underlyingType,
-        toString() {
-            return underlyingType.toString() + '?';
-        }
-    }
-}
+export * from './types/type-constants.pure';
+export * from './types/type-variable.pure';
+export * from './types/primitive-type.pure';
+export * from './types/nullable-type.pure';
+export * from './types/function-type.pure';
+export * from './types/object-type.pure';
+export * from './types/array-type.pure';
+export * from './type-variables.pure';
 
 
 // function createTypeClass(name, type) {
@@ -469,9 +237,6 @@ export function prune(type, typeVariables) {
         case FUNCTION_TYPE: {
             return createFunctionType(type.types.map(t => prune(t, typeVariables)), type);
         }
-        case ARRAY_TYPE: {
-            return createArrayType(prune(type.elementType, typeVariables));
-        }
         case OBJECT_TYPE: {
             const prunedProps = Object.keys(type.props).reduce((props, k) => {
                 const prop = type.props[k];
@@ -605,18 +370,12 @@ export function unify(t1Raw, t2Raw, typeVariables) {
     throw new TypeError("Not unified: " + t1 + ' && ' + t2);
 }
 
-export function commonSubtype(t1Raw, t2Raw, typeVariables) {
-    console.assert(typeVariables);
 
-    const t1 = prune(t1Raw, typeVariables);
-    const t2 = prune(t2Raw, typeVariables);
+// ### Occurs check
 
-    if (t1.type === PRIMITIVE_TYPE && t2.type === PRIMITIVE_TYPE && t1.primitiveType === t2.primitiveType) {
-        return t1;
-    }
-
-    return INDETERMINATE_TYPE;
-}
+// These functions check whether the type `t2` is equal to or contained within
+// the type `t1`. Used for checking recursive definitions in `unify` and
+// checking if a variable is non-generic in `fresh`.
 
 export function occursInType(t1, t2Raw, typeVariables) {
     const t2 = prune(t2Raw, typeVariables);
@@ -626,9 +385,6 @@ export function occursInType(t1, t2Raw, typeVariables) {
     switch (t2.type) {
         case FUNCTION_TYPE: {
             return occursInTypeArray(t1, t2.types, typeVariables);
-        }
-        case ARRAY_TYPE: {
-            return occursInType(t1, t2.elementType, typeVariables);
         }
         case OBJECT_TYPE: {
             for ( const k in t2.props ) {
@@ -650,33 +406,4 @@ export function occursInType(t1, t2Raw, typeVariables) {
 
 export function occursInTypeArray(t1, types, typeVariables) {
     return types.some(t2 => occursInType(t1, t2, typeVariables));
-}
-
-// ### Occurs check
-
-// These functions check whether the type `t2` is equal to or contained within
-// the type `t1`. Used for checking recursive definitions in `unify` and
-// checking if a variable is non-generic in `fresh`.
-// export function occursInType(t1, t2) {
-//     const prunedT2 = prune(t2);
-//     if (prunedT2 === t1) {
-//         return true;
-//     } else if(t2 instanceof ObjectType) {
-//         var types = [];
-//         for(var prop in t2.props) {
-//             types.push(t2.props[prop]);
-//         }
-//         return occursInTypeArray(t1, types);
-//     } else if(t2 instanceof BaseType) {
-//         return occursInTypeArray(t1, t2.types);
-//     }
-//     return false;
-// };
-
-// function occursInTypeArray(t1, types) {
-//     return types.some(t2 => occursInType(t1, t2));
-// };
-
-function toChar(n) {
-    return String.fromCharCode("a".charCodeAt(0) + n);
 }
