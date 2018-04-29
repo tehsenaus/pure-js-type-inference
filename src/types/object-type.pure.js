@@ -1,7 +1,9 @@
 'use strict';
 
-import { OBJECT_TYPE, DICT_LOOKUP_OPERATOR } from '../types.pure';
+import { OBJECT_TYPE, DICT_LOOKUP_OPERATOR } from './type-constants.pure';
 import { STRING_TYPE } from './primitive-type.pure';
+import { createFunctionType } from './function-type.pure';
+import { createNullableType } from './nullable-type.pure';
 
 export function createObjectType(props) {
 	return {
@@ -23,6 +25,11 @@ export function addObjectProperty(objectType, name, type) {
 
 export function createDictType(memberType) {
 	return createObjectType({
-		[DICT_LOOKUP_OPERATOR]: createFunctionType([STRING_TYPE, memberType]),
+		[DICT_LOOKUP_OPERATOR]: createFunctionType([STRING_TYPE, createNullableType(memberType)]),
 	});
+}
+
+export function isDictType(type) {
+	return type.type === OBJECT_TYPE && (DICT_LOOKUP_OPERATOR in type.props)
+		&& type.props[DICT_LOOKUP_OPERATOR].types[0] === STRING_TYPE;
 }

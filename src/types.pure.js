@@ -353,6 +353,13 @@ export function unify(t1Raw, t2Raw, typeVariables) {
 				.map(k => k + ' : ' + prune(t2.props[k], typeVariables));
 			throw new TypeError("Object missing properties:\n" + indent(missingProps.join('\n')));
 		}
+	} else if (t1.type === NULLABLE_TYPE && t2.type === NULLABLE_TYPE) {
+		const [t1u, t2u, nextTypeVariables] = unify(t1.underlyingType, t2.underlyingType, typeVariables);
+		return [
+			createNullableType(t1u),
+			createNullableType(t2u),
+			nextTypeVariables,
+		];
 	}
 
 	console.log(t1, t2);

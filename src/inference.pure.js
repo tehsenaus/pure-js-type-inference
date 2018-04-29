@@ -3,7 +3,9 @@
 import * as babylon from 'babylon';
 import traverse from 'babel-traverse';
 import { prune, unify, allocTypeVariable, createFunctionType, createObjectType,
-	NUMBER_TYPE, STRING_TYPE, INITIAL_TYPE_VARIABLES_STATE, UNIT_TYPE, OBJECT_TYPE, BOOLEAN_TYPE, createArrayType, createTupleType, commonSubtype, fresh, showTypeVariables } from './types.pure';
+	NUMBER_TYPE, STRING_TYPE, INITIAL_TYPE_VARIABLES_STATE, UNIT_TYPE, OBJECT_TYPE,
+	BOOLEAN_TYPE, createArrayType, createTupleType, commonSubtype, fresh, showTypeVariables, isDictType, createDictType, DICT_LOOKUP_OPERATOR,
+} from './types.pure';
 import { mapWithState, reduceWithState, mapWithStateTakeLast } from './util.pure';
 import { throwNiceError } from './error.pure';
 import { analyseFunction } from './inference/function.pure';
@@ -152,14 +154,47 @@ export function _analyse(node, state) {
 	}
 
 	case 'ObjectExpression': {
+		// Empty object - create a dict type (supporting dynamic lookup)
+		if (node.properties.length === 0) {
+			const { variable: memberType, typeVariables } = allocTypeVariable(state.typeVariables);
+			return {
+				result: createDictType(memberType),
+				state: {
+					...state,
+					typeVariables,
+				},
+			};
+		}
+
 		const { result: types, nextState } = reduceWithState(state, node.properties, (props, p, state) => {
 			switch (p.type) {
 			case 'ObjectProperty': {
-				const { result: type, state: nextState } = analyse(p.value, state);
+				const { result: memberType, state: nextState } = analyse(p.value, state);
+
+				// If we are creating dynamic properties, then the object becomes a dict.
+				if (p.computed) {
+					const [unifiedDictType, unifiedType, typeVariables] = unify(
+						createDictType(memberType),
+						createObjectType(props),
+						state.typeVariables
+					);
+
+					return {
+						result: {
+							...props,
+							...unifiedDictType.props,
+						},
+						state: {
+							...nextState,
+							typeVariables,
+						},
+					};
+				}
+
 				return {
 					result: {
 						...props,
-						[p.key.name || p.key.value]: type,
+						[p.key.name || p.key.value]: memberType,
 					},
 					state: nextState,
 				};
@@ -168,17 +203,37 @@ export function _analyse(node, state) {
 			case 'SpreadProperty': {
 				const { result: type, state: nextState } = analyse(p.argument, state);
 
-				// TODO: create intersection type, if this is a type variable
-				if ( type.type !== OBJECT_TYPE ) {
-					throw 'object spread of non-object type: ' + type;
+				// If this is a known object type, we know its properties.
+				if ( type.type === OBJECT_TYPE && !isDictType(type) ) {
+					return {
+						result: {
+							...props,
+							...type.props,
+						},
+						state: nextState,
+					};
 				}
+
+				// Otherwise, this is a dynamic spread.
+				console.log(props);
+				const { variable: memberType, typeVariables }
+					= props[DICT_LOOKUP_OPERATOR] ? { variable: props[DICT_LOOKUP_OPERATOR], typeVariables: nextState.typeVariables }
+						: allocTypeVariable(nextState.typeVariables);
+				const [unifiedDictType, unifiedType, nextTypeVariables] = unify(
+					createDictType(memberType),
+					type,
+					typeVariables
+				);
 
 				return {
 					result: {
 						...props,
-						...type.props,
+						...unifiedDictType.props,
 					},
-					state: nextState,
+					state: {
+						...nextState,
+						typeVariables: nextTypeVariables,
+					},
 				};
 			}
 
@@ -193,8 +248,8 @@ export function _analyse(node, state) {
 			result,
 			state: {
 				...nextState,
-			}
-		}
+			},
+		};
 	}
 
 	case 'ArrayExpression': {
@@ -221,7 +276,7 @@ export function _analyse(node, state) {
 				state,
 			};
 		} else {
-			console.error(state.env);
+			console.error(node.name, state.env);
 			throw "unknown identifier: " + node.name;
 		}
 	}
@@ -327,4 +382,6 @@ export function analyseSource(src) {
 // 	}, { result: initial, nextState: state });
 // }`);
 
-// analyseSource('return s => ({ ...s, c: 1 })');
+// analyseSource(`return (s => ({ ...s, c: 1 }))({ ['y']: 1 })['x']`);
+// analyseSource(`return { ...{ ['x']: true }, ...{ ['y']: 1 } }`);
+
