@@ -1,7 +1,9 @@
 import {unify, allocTypeVariable, createFunctionType, UNIT_TYPE, TYPE_VARIABLE,
 	getAllTypeVariablesInType, prune, getTypeVariable, createTypeVariable, replaceInType, showTypeVariables, occursInTypeVariables} from '../types.pure';
 import {mapWithState} from '../util.pure';
+import { uniqBy } from 'ramda';
 import createDebug from 'debug';
+import { analyseObjectPattern } from './destructuring.pure';
 
 const debug = createDebug('pure-js-type-inference:inference:function');
 
@@ -9,8 +11,13 @@ export function analyseFunction(node, state, analyse) {
 	const outerScope = state.env;
 	const outerTypeVariables = state.typeVariables;
 	const recursive = !!node.id;
+
 	const {result: argTypes, nextState: stateWithArgs} =
 		node.params.length > 0 ? mapWithState(state, node.params, (arg, state) => {
+			if ( arg.type === 'ObjectPattern' ) {
+				return analyseObjectPattern(arg, state, analyse);
+			}
+
 			const {variable: result, typeVariables} = allocTypeVariable(state.typeVariables);
 			// newNonGeneric.push(argType);
 
@@ -68,21 +75,14 @@ export function analyseFunction(node, state, analyse) {
 
 	debug('TVs: %s %s bound=%s vars=%s', result, typeVars, boundTypeVars, showTypeVariables(outerTypeVariables, nextState.typeVariables));
 
-	const boundTypeVarReplacements = boundTypeVars.reduce((replacements, tv, i) => {
-		return {
-			...replacements,
-			[tv.id]: replacements[tv.id] || createTypeVariable(
-				Object.keys(replacements).length,
-				{bound: true}
-			),
-		};
-	}, {});
+	const boundTypeVarReplacements = uniqBy(tv => tv.id)(boundTypeVars).map((tv, i) => {
+		return [tv, createTypeVariable(i, { bound: true })];
+	});
 
 	return {
 		result: {
 			...replaceInType(result, boundTypeVarReplacements),
-			typeVariables: Object.keys(boundTypeVarReplacements)
-				.map((k) => boundTypeVarReplacements[k]),
+			typeVariables: boundTypeVarReplacements.map(r => r[1]),
 		},
 		state: {
 			...nextState,

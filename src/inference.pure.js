@@ -10,6 +10,7 @@ import { mapWithState, reduceWithState, mapWithStateTakeLast } from './util.pure
 import { throwNiceError } from './error.pure';
 import { analyseFunction } from './inference/function.pure';
 import { analyseMemberExpression } from './inference/member-expression.pure';
+import { analyseObjectPattern } from './inference/destructuring.pure';
 
 export function analyseCall(funType, args, state) {
 	const [freshFunType, freshTypeVariables] = fresh(funType, state.typeVariables);
@@ -96,6 +97,21 @@ export function _analyse(node, state) {
 	}
 	case 'VariableDeclarator': {
 		const { result: type, state: nextState } = analyse(node.init, state);
+
+		if ( node.id.type === 'ObjectPattern' ) {
+			const { result: objectType, state: nextState2 }
+				= analyseObjectPattern(node.id, nextState, analyse);
+			const [unifiedType, unifiedObjectType, typeVariables]
+				= unify(type, objectType, nextState2.typeVariables);
+			return {
+				result: UNIT_TYPE,
+				state: {
+					...nextState2,
+					typeVariables,
+				},
+			};
+		}
+
 		return {
 			result: UNIT_TYPE,
 			state: {
@@ -215,7 +231,6 @@ export function _analyse(node, state) {
 				}
 
 				// Otherwise, this is a dynamic spread.
-				console.log(props);
 				const { variable: memberType, typeVariables }
 					= props[DICT_LOOKUP_OPERATOR] ? { variable: props[DICT_LOOKUP_OPERATOR], typeVariables: nextState.typeVariables }
 						: allocTypeVariable(nextState.typeVariables);
@@ -348,7 +363,7 @@ export function analyseSource(src) {
 	const ast = babylon.parse(wrappedSrc, parseOptions);
 	const res = analyse(ast.program.body[0], { ...initialState, src: wrappedSrc });
 
-	console.log('RESULT = %s', prune(res.result, res.state.typeVariables));
+	console.log('RESULT = %s', prune(res.result, res.state.typeVariables).toString({ verbose: true }));
 
 	const vars = res.state.typeVariables.variables;
 	console.log(showTypeVariables(res.state.typeVariables));
@@ -358,12 +373,21 @@ export function analyseSource(src) {
 
 // analyseSource(`return m => x => x[m]`);
 
+// analyseSource(`return (m => x => x[m])('a')`);
+
 // analyseSource(`return (state, values, f, initial) => {
 // 	return values.reduce((acc, v, i) => {
 // 		const r = f(acc.result, v, acc.nextState, i);
 // 		return { result: r.result, nextState: r.state };
 // 	}, { result: initial, nextState: state });
 // }`);
+
+analyseSource(`
+const ho = (f, x) => {
+	return f(x);
+};
+return ho(x => x, 1);
+`);
 
 // analyseSource(`
 // const mapWithState = (state, values, f, initial) => {
@@ -375,12 +399,38 @@ export function analyseSource(src) {
 // return mapWithState({}, [1, 2], (acc, v, state, i) => ({ result: {}, state: {} }), {});
 // `);
 
-// analyseSource(`return (state, values, f, initial) => {
-// 	return values.reduce(({ result: acc, nextState: state }, v, i) => {
-// 		const { result, state: nextState } = f(acc, v, state, i);
-// 		return { result, nextState };
-// 	}, { result: initial, nextState: state });
-// }`);
+// analyseSource(`
+// return function mapWithStateTakeLast(state, values, f) {
+// 	return values.reduce(
+// 		({state}, v, i) => {
+// 			const {result, state: nextState} = f(v, state, i);
+// 			return {result, state: nextState};
+// 		},
+// 		{state}
+// 	);
+// }
+
+// // return mapWithStateTakeLast({}, [1,2], (v,state,i) => ({ result: v, state }))
+
+// // return function reduceWithState (state, values, f, initial) {
+// // 	return values.reduce(({ result: acc, nextState: state }, v, i) => {
+// // 		const { result, state: nextState } = f(acc, v, state, i);
+// // 		return { result, nextState };
+// // 	}, { result: initial, nextState: state });
+// // } 
+
+// // return function mapWithState(state, values, f) {
+// // 	return reduceWithState(
+// // 		state,
+// // 		values,
+// // 		(acc, v, state, i) => {
+// // 			const {result: v2, state: nextState} = f(v, state, i);
+// // 			return {result: acc, state: nextState};
+// // 		},
+// // 		[]
+// // 	);
+// // }
+// `);
 
 // analyseSource(`return (s => ({ ...s, c: 1 }))({ ['y']: 1 })['x']`);
 // analyseSource(`return { ...{ ['x']: true }, ...{ ['y']: 1 } }`);

@@ -62,6 +62,7 @@ export function getTypeVariable(variable, typeVariables) {
 
 export function setTypeVariable(variable, value, typeVariables) {
 	console.assert(typeof variable.id === 'number');
+	console.assert(value);
 	return {
 		...typeVariables,
 		variables: {

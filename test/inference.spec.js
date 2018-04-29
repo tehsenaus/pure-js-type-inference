@@ -78,6 +78,10 @@ describe('type inference', function() {
                 }`);
 			}).not.toThrow();
 		});
+
+		it('returns correct concrete type from higher order function', false, () => {
+			expect(typeOfExpr('((f, x) => f(x))(x => x, 1)')).toBe('Number');
+		});
 	});
 
 	describe('operators', () => {

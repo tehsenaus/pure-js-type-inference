@@ -6,7 +6,7 @@ export function throwNiceError(e, src, node) {
 	const offset = 3;
 	const msg = lines
 		.slice(node.loc.start.line - 1, node.loc.end.line)
-		.map((line, i) => (node.loc.start.line + i) + '| ' + line)
+		.map((line, i) => (node.loc.start.line + i) + '| ' + line.replace(/\t/g, ' '))
 		.join('\n') + '\n' +
         src.slice(0, offset + node.loc.start.column - 1).replace(/./g, ' ') +
         src.slice(offset + node.loc.start.column - 1, offset + node.loc.end.column).replace(/./g, '^');

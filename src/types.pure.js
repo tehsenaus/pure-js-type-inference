@@ -51,26 +51,22 @@ export function fresh(rawType, typeVariables) {
 
 	switch (type.type) {
 	case FUNCTION_TYPE: {
-		const { result: freshVariableReplacements, nextState: freshTypeVariables } = reduceWithState(
+		const { result: freshVariableReplacements, nextState: freshTypeVariables } = mapWithState(
 			typeVariables,
 			type.typeVariables,
-			(replacements, variableToReplace, typeVariables) => {
+			(variableToReplace, typeVariables) => {
 				const {
 					variable: freshVariable,
-					typeVariables: nextTypeVariables
+					typeVariables: nextTypeVariables,
 				} = allocTypeVariable(typeVariables);
 
 				// Replace bound variable with fresh instance
 
 				return {
-					result: {
-						...replacements,
-						[variableToReplace.id]: freshVariable,
-					},
+					result: [variableToReplace, freshVariable],
 					state: nextTypeVariables,
 				};
-			},
-			{}
+			}
 		);
 
 		const { result: freshTypes, nextState: nextTypeVariables } = mapWithState(
@@ -87,7 +83,7 @@ export function fresh(rawType, typeVariables) {
 
 				return { result: freshType, state };
 			}
-		)
+		);
 
 		return [
 			createFunctionType(freshTypes),
@@ -206,10 +202,11 @@ export const getAllTypeVariablesInType = traverseType(constApplicative)(type => 
 });
 
 export const replaceInType = (t, replacements) => traverseType(identityApplicative)(type => {
+	const replacementsMap = new Map(replacements);
 	switch (type.type) {
 	case TYPE_VARIABLE: {
-		if ( type.id in replacements ) {
-			return replacements[type.id];
+		if ( replacementsMap.has(type) ) {
+			return replacementsMap.get(type);
 		}
 	}
 	}
